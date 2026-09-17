@@ -38,6 +38,7 @@ interface LoginModalProps {
 		provider: 'google' | 'github' | 'cloudflare',
 		redirectUrl?: string,
 	) => void;
+	onAccessLogin?: () => void;
 	onRegister?: (data: {
 		email: string;
 		password: string;
@@ -59,6 +60,7 @@ export function LoginModal({
 	onLogin, // Original OAuth interface
 	onEmailLogin,
 	onOAuthLogin,
+	onAccessLogin,
 	onRegister,
 	error,
 	onClearError,
@@ -90,6 +92,9 @@ export function LoginModal({
 	const showGitHub = authProviders?.github && hasOAuth;
 	const showGoogle = authProviders?.google && hasOAuth;
 	const showCloudflare = authProviders?.cloudflare && hasOAuth;
+	// Access is independent of `hasOAuth`/`onOAuthLogin`: it does not go through
+	// the generic `/api/auth/oauth/:provider` flow, so it needs its own handler.
+	const showAccess = !!authProviders?.access && !!onAccessLogin;
 
 	const resetForm = () => {
 		setEmail('');
@@ -337,8 +342,21 @@ export function LoginModal({
 						</Button>
 					)}
 
-					{/* Divider (only if both OAuth and email are available) */}
-					{hasEmailAuth && hasOAuth && (
+					{/* Cloudflare Access */}
+					{showAccess && (
+						<Button
+							type="button"
+							variant="secondary"
+							className="w-full justify-center mb-4"
+							onClick={() => onAccessLogin?.()}
+							icon={<CloudflareLogo className="h-5 w-5" />}
+						>
+							Continue with Access
+						</Button>
+					)}
+
+					{/* Divider (only if both email and at least one other method are available) */}
+					{hasEmailAuth && (hasOAuth || showAccess) && (
 						<div className="relative">
 							<div className="absolute inset-0 flex items-center">
 								<div className="w-full border-t" />

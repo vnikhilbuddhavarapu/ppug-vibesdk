@@ -9,103 +9,130 @@ import { CsrfService } from './services/csrf/CsrfService';
 import { SecurityError, SecurityErrorType } from 'shared/types/errors';
 import { getGlobalConfigurableSettings } from './config';
 import { AuthConfig, setAuthLevel } from './middleware/auth/routeAuth';
+import { AuthController } from './api/controllers/auth/controller';
+import { adaptController } from './api/honoAdapter';
 // import { initHonoSentry } from './observability/sentry';
 
 export function createApp(env: Env): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
+	const app = new Hono<AppEnv>();
 
-    // Observability: Sentry error reporting & context
-    // initHonoSentry(app);
+	// Observability: Sentry error reporting & context
+	// initHonoSentry(app);
 
-    // Apply global security middlewares (skip for WebSocket upgrades)
-    app.use('*', async (c, next) => {
-        // Skip secure headers for WebSocket upgrade requests
-        const upgradeHeader = c.req.header('upgrade');
-        if (upgradeHeader?.toLowerCase() === 'websocket') {
-            return next();
-        }
+	// Apply global security middlewares (skip for WebSocket upgrades)
+	app.use('*', async (c, next) => {
+		// Skip secure headers for WebSocket upgrade requests
+		const upgradeHeader = c.req.header('upgrade');
+		if (upgradeHeader?.toLowerCase() === 'websocket') {
+			return next();
+		}
 
-        // Skip secure headers for OAuth redirect endpoints to avoid
-        // immutable header errors on redirect responses.
-        const pathname = new URL(c.req.url).pathname;
-        if (pathname.startsWith('/oauth/') || pathname === '/auth/callback') {
-            return next();
-        }
-        // Apply secure headers
-        return secureHeaders(getSecureHeadersConfig(env))(c, next);
-    });
-    
-    // CORS configuration
-    app.use('/api/*', cors(getCORSConfig(env)));
-    
-    // CSRF protection using double-submit cookie pattern with proper GET handling
-    app.use('*', async (c, next) => {
-        const method = c.req.method.toUpperCase();
-        
-        // Skip for WebSocket upgrades
-        const upgradeHeader = c.req.header('upgrade');
-        if (upgradeHeader?.toLowerCase() === 'websocket') {
-            return next();
-        }
-        
-        try {
-            // Handle GET requests - establish CSRF token if needed
-            if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-                await next();
-                
-                // Only set CSRF token for successful API responses
-                if (c.req.url.startsWith('/api/') && c.res.status < 400) {
-                    await CsrfService.enforce(c.req.raw, c.res);
-                }
-                
-                return;
-            }
-            
-            // Validate CSRF token for state-changing requests
-            await CsrfService.enforce(c.req.raw, undefined);
-            await next();
-        } catch (error) {
-            if (error instanceof SecurityError && error.type === SecurityErrorType.CSRF_VIOLATION) {
-                return new Response(JSON.stringify({ 
-                    error: { 
-                        message: 'CSRF validation failed',
-                        type: SecurityErrorType.CSRF_VIOLATION
-                    }
-                }), {
-                    status: 403,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            }
-            throw error;
-        }
-    });
+		// Skip secure headers for OAuth redirect endpoints to avoid
+		// immutable header errors on redirect responses.
+		const pathname = new URL(c.req.url).pathname;
+		if (
+			pathname.startsWith('/oauth/') ||
+			pathname === '/auth/callback' ||
+			pathname === '/auth/access/callback'
+		) {
+			return next();
+		}
+		// Apply secure headers
+		return secureHeaders(getSecureHeadersConfig(env))(c, next);
+	});
 
-    app.use('/api/*', async (c, next) => {
-        // Apply global config middleware
-        const config = await getGlobalConfigurableSettings(env);
-        c.set('config', config);
+	// CORS configuration
+	app.use('/api/*', cors(getCORSConfig(env)));
 
-        // Apply global rate limit middleware. Should this be moved after setupRoutes so that maybe 'user' is available?
-        await RateLimitService.enforceGlobalApiRateLimit(env, c.get('config').security.rateLimit, null, c.req.raw)
-        await next();
-    })
+	// CSRF protection using double-submit cookie pattern with proper GET handling
+	app.use('*', async (c, next) => {
+		const method = c.req.method.toUpperCase();
 
-    // By default, all routes require authentication
-    app.use('/api/*', setAuthLevel(AuthConfig.ownerOnly));
+		// Skip for WebSocket upgrades
+		const upgradeHeader = c.req.header('upgrade');
+		if (upgradeHeader?.toLowerCase() === 'websocket') {
+			return next();
+		}
 
-    // Now setup all the routes
-    setupRoutes(app);
+		try {
+			// Handle GET requests - establish CSRF token if needed
+			if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+				await next();
 
-    // Add not found route to redirect to ASSETS
-    // Wrap the ASSETS response in a new Response with mutable headers so
-    // downstream middleware (e.g. secureHeaders) can safely modify them.
-    app.notFound(async (c) => {
-        const res = await c.env.ASSETS.fetch(c.req.raw);
-        return new Response(res.body, {
-            status: res.status,
-            statusText: res.statusText,
-            headers: new Headers(res.headers),
-        });
-    });
-    return app;
+				// Only set CSRF token for successful API responses
+				if (c.req.url.startsWith('/api/') && c.res.status < 400) {
+					await CsrfService.enforce(c.req.raw, c.res);
+				}
+
+				return;
+			}
+
+			// Validate CSRF token for state-changing requests
+			await CsrfService.enforce(c.req.raw, undefined);
+			await next();
+		} catch (error) {
+			if (
+				error instanceof SecurityError &&
+				error.type === SecurityErrorType.CSRF_VIOLATION
+			) {
+				return new Response(
+					JSON.stringify({
+						error: {
+							message: 'CSRF validation failed',
+							type: SecurityErrorType.CSRF_VIOLATION,
+						},
+					}),
+					{
+						status: 403,
+						headers: { 'Content-Type': 'application/json' },
+					},
+				);
+			}
+			throw error;
+		}
+	});
+
+	app.use('/api/*', async (c, next) => {
+		// Apply global config middleware
+		const config = await getGlobalConfigurableSettings(env);
+		c.set('config', config);
+
+		// Apply global rate limit middleware. Should this be moved after setupRoutes so that maybe 'user' is available?
+		await RateLimitService.enforceGlobalApiRateLimit(
+			env,
+			c.get('config').security.rateLimit,
+			null,
+			c.req.raw,
+		);
+		await next();
+	});
+
+	// Cloudflare Access login callback. This exact path is what the Access
+	// Application is scoped to protect (outside `/api/*` since Access, not
+	// our own session auth, gates it) — Access only forwards the request here
+	// after its own hosted login succeeds.
+	app.get(
+		'/auth/access/callback',
+		setAuthLevel(AuthConfig.public),
+		adaptController(AuthController, AuthController.handleAccessCallback),
+	);
+
+	// By default, all routes require authentication
+	app.use('/api/*', setAuthLevel(AuthConfig.ownerOnly));
+
+	// Now setup all the routes
+	setupRoutes(app);
+
+	// Add not found route to redirect to ASSETS
+	// Wrap the ASSETS response in a new Response with mutable headers so
+	// downstream middleware (e.g. secureHeaders) can safely modify them.
+	app.notFound(async (c) => {
+		const res = await c.env.ASSETS.fetch(c.req.raw);
+		return new Response(res.body, {
+			status: res.status,
+			statusText: res.statusText,
+			headers: new Headers(res.headers),
+		});
+	});
+	return app;
 }

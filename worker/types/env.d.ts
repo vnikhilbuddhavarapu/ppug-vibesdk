@@ -3,6 +3,7 @@ declare namespace Cloudflare {
 		// Dashboard-managed settings are intentionally omitted from wrangler vars.
 		ALLOWED_EMAIL?: string;
 		ALLOCATION_STRATEGY?: string;
+		ACCESS_ENABLED?: string;
 		ENABLE_ARTIFACTS?: string;
 		ENABLE_CLOUDFLARE_LIMITS?: string;
 		ENABLE_EMAIL_AUTH?: string;
@@ -12,6 +13,8 @@ declare namespace Cloudflare {
 		USE_TUNNEL_FOR_PREVIEW?: string;
 
 		// Secret bindings are omitted by `wrangler types` when absent from .dev.vars.
+		ACCESS_TEAM_DOMAIN: string;
+		ACCESS_AUD: string;
 		AI_PROXY_JWT_SECRET: string;
 		ANTHROPIC_API_KEY: string;
 		CF_ACCESS_ID: string;

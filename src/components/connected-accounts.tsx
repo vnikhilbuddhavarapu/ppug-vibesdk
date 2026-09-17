@@ -66,6 +66,14 @@ const PROVIDER_META: Record<
 		label: 'Cloudflare',
 		icon: <CloudflareLogo variant="glyph" className="h-5 w-5" />,
 	},
+	// Access is login-only for now (not in `PROVIDER_ORDER`, so it never
+	// renders as a linkable/unlinkable row) — this entry only exists to
+	// satisfy `Record<OAuthProvider, ...>` and label an Access identity if
+	// one is ever surfaced elsewhere.
+	access: {
+		label: 'Cloudflare Access',
+		icon: <CloudflareLogo variant="glyph" className="h-5 w-5" />,
+	},
 };
 
 const PROVIDER_ORDER: OAuthProvider[] = ['github', 'google', 'cloudflare'];

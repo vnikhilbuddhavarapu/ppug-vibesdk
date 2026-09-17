@@ -4,7 +4,7 @@
  * Features 401 response interception to trigger authentication modals
  */
 
-import type{
+import type {
 	ApiResponse,
 	AppsListData,
 	PublicAppsData,
@@ -209,18 +209,22 @@ class ApiClient {
 
 	private async fetchCsrfTokenUncached(): Promise<boolean> {
 		try {
-			const response = await fetch(`${this.baseUrl}/api/auth/csrf-token`, {
-				method: 'GET',
-				credentials: 'include',
-			});
+			const response = await fetch(
+				`${this.baseUrl}/api/auth/csrf-token`,
+				{
+					method: 'GET',
+					credentials: 'include',
+				},
+			);
 
 			if (response.ok) {
-				const data: ApiResponse<CsrfTokenResponseData> = await response.json();
+				const data: ApiResponse<CsrfTokenResponseData> =
+					await response.json();
 				if (data.data?.token) {
 					const expiresIn = data.data.expiresIn || 7200; // Default 2 hours
 					this.csrfTokenInfo = {
 						token: data.data.token,
-						expiresAt: Date.now() + (expiresIn * 1000)
+						expiresAt: Date.now() + expiresIn * 1000,
 					};
 					return true;
 				}
@@ -240,7 +244,6 @@ class ApiClient {
 		await this.fetchCsrfToken();
 	}
 
-
 	/**
 	 * Check if CSRF token is expired
 	 */
@@ -253,7 +256,9 @@ class ApiClient {
 	 * Ensure CSRF token exists and is valid for state-changing requests
 	 */
 	private async ensureCsrfToken(method: string): Promise<boolean> {
-		if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(method.toUpperCase())) {
+		if (
+			!['POST', 'PUT', 'DELETE', 'PATCH'].includes(method.toUpperCase())
+		) {
 			return true;
 		}
 
@@ -310,9 +315,14 @@ class ApiClient {
 	private async request<T>(
 		endpoint: string,
 		options: RequestOptions = {},
-        noToast: boolean = false,
+		noToast: boolean = false,
 	): Promise<ApiResponse<T>> {
-		const { data } = await this.requestRaw<T>(endpoint, options, false, noToast);
+		const { data } = await this.requestRaw<T>(
+			endpoint,
+			options,
+			false,
+			noToast,
+		);
 		if (!data) {
 			throw new ApiError(
 				500,
@@ -328,11 +338,11 @@ class ApiClient {
 		endpoint: string,
 		options: RequestOptions = {},
 		isRetry: boolean = false,
-        noToast: boolean = false,
+		noToast: boolean = false,
 	): Promise<{ response: Response; data: ApiResponse<T> | null }> {
 		this.ensureSessionToken();
 
-		if (!await this.ensureCsrfToken(options.method || 'GET')) {
+		if (!(await this.ensureCsrfToken(options.method || 'GET'))) {
 			throw new ApiError(
 				500,
 				'Internal Error',
@@ -368,60 +378,75 @@ class ApiClient {
 				return { response, data: null };
 			}
 
-			const data = await response.json() as ApiResponse<T>;
+			const data = (await response.json()) as ApiResponse<T>;
 
 			if (!response.ok) {
-                // Token refresh happens transparently on the backend via the
-                // HttpOnly cookie. A 401 here means the cookie is gone or the
-                // session itself is invalid - no client-side refresh to attempt.
+				// Token refresh happens transparently on the backend via the
+				// HttpOnly cookie. A 401 here means the cookie is gone or the
+				// session itself is invalid - no client-side refresh to attempt.
 
-                if (
-                    response.status === 401 &&
-                    globalAuthModalTrigger &&
-                    this.shouldTriggerAuthModal(endpoint)
-                ) {
-                    const authContext = this.getAuthContextForEndpoint(endpoint);
-                    globalAuthModalTrigger(authContext);
-                }
+				if (
+					response.status === 401 &&
+					globalAuthModalTrigger &&
+					this.shouldTriggerAuthModal(endpoint)
+				) {
+					const authContext =
+						this.getAuthContextForEndpoint(endpoint);
+					globalAuthModalTrigger(authContext);
+				}
 
-                const errorData = data.error;
-                if (errorData && errorData.type) {
-                    if (
-                        errorData.type === SecurityErrorType.CSRF_VIOLATION &&
-                        response.status === 403 &&
-                        !isRetry
-                    ) {
-                        this.csrfTokenInfo = null;
-                        return this.requestRaw(endpoint, options, true, noToast);
-                    }
-                    if (!noToast) {
-                        toast.error(errorData.message);
-                    }
-                    switch (errorData.type) {
-                        case SecurityErrorType.CSRF_VIOLATION:
-                            break;
-                        case SecurityErrorType.RATE_LIMITED:
-                            // Handle rate limiting
-                            console.log('Rate limited', errorData);
-                            throw RateLimitExceededError.fromRateLimitError(errorData as unknown as RateLimitError);
-                        default:
-                            // Security error
-                            throw new SecurityError(errorData.type, errorData.message);
-                        }
-                    }
+				const errorData = data.error;
+				if (errorData && errorData.type) {
+					if (
+						errorData.type === SecurityErrorType.CSRF_VIOLATION &&
+						response.status === 403 &&
+						!isRetry
+					) {
+						this.csrfTokenInfo = null;
+						return this.requestRaw(
+							endpoint,
+							options,
+							true,
+							noToast,
+						);
+					}
+					if (!noToast) {
+						toast.error(errorData.message);
+					}
+					switch (errorData.type) {
+						case SecurityErrorType.CSRF_VIOLATION:
+							break;
+						case SecurityErrorType.RATE_LIMITED:
+							// Handle rate limiting
+							console.log('Rate limited', errorData);
+							throw RateLimitExceededError.fromRateLimitError(
+								errorData as unknown as RateLimitError,
+							);
+						default:
+							// Security error
+							throw new SecurityError(
+								errorData.type,
+								errorData.message,
+							);
+					}
+				}
 
-                    throw new ApiError(
-                        response.status,
-                        response.statusText,
-                        data.error?.message || data.message || 'Request failed',
-                        endpoint,
-                    );
+				throw new ApiError(
+					response.status,
+					response.statusText,
+					data.error?.message || data.message || 'Request failed',
+					endpoint,
+				);
 			}
 
-		    return { response, data };
+			return { response, data };
 		} catch (error) {
-            console.error(error);
-			if (error instanceof ApiError || error instanceof RateLimitExceededError || error instanceof SecurityError) {
+			console.error(error);
+			if (
+				error instanceof ApiError ||
+				error instanceof RateLimitExceededError ||
+				error instanceof SecurityError
+			) {
 				throw error;
 			}
 			throw new ApiError(
@@ -437,8 +462,14 @@ class ApiClient {
 	// Platform Status API Methods
 	// ===============================
 
-	async getPlatformStatus(noToast: boolean = true): Promise<ApiResponse<PlatformStatusData>> {
-		return this.request<PlatformStatusData>('/api/status', undefined, noToast);
+	async getPlatformStatus(
+		noToast: boolean = true,
+	): Promise<ApiResponse<PlatformStatusData>> {
+		return this.request<PlatformStatusData>(
+			'/api/status',
+			undefined,
+			noToast,
+		);
 	}
 
 	// ===============================
@@ -448,8 +479,14 @@ class ApiClient {
 	/**
 	 * Get platform capabilities including available features
 	 */
-	async getCapabilities(noToast: boolean = true): Promise<ApiResponse<CapabilitiesData>> {
-		return this.request<CapabilitiesData>('/api/capabilities', undefined, noToast);
+	async getCapabilities(
+		noToast: boolean = true,
+	): Promise<ApiResponse<CapabilitiesData>> {
+		return this.request<CapabilitiesData>(
+			'/api/capabilities',
+			undefined,
+			noToast,
+		);
 	}
 
 	// ===============================
@@ -586,15 +623,18 @@ class ApiClient {
 	async generatePreviewToken(
 		appId: string,
 	): Promise<ApiResponse<PreviewTokenData>> {
-		return this.request<PreviewTokenData>(`/api/apps/${appId}/preview-token`, {
-			method: 'POST',
-		});
+		return this.request<PreviewTokenData>(
+			`/api/apps/${appId}/preview-token`,
+			{
+				method: 'POST',
+			},
+		);
 	}
 
 	// /**
 	//  * Fork an app
 	//  */
-    // DISABLED: Has been disabled for initial alpha release, for security reasons
+	// DISABLED: Has been disabled for initial alpha release, for security reasons
 	// async forkApp(appId: string): Promise<ApiResponse<ForkAppData>> {
 	// 	return this.request<ForkAppData>(`/api/apps/${appId}/fork`, {
 	// 		method: 'POST',
@@ -628,7 +668,9 @@ class ApiClient {
 		return this.request<UserAppsData>(endpoint);
 	}
 
-	async createAgentSession(args: CodeGenArgs): Promise<AgentStreamingResponse> {
+	async createAgentSession(
+		args: CodeGenArgs,
+	): Promise<AgentStreamingResponse> {
 		try {
 			const { response, data } = await this.requestRaw(
 				'/api/agent',
@@ -644,35 +686,46 @@ class ApiClient {
 			// Check if response is ok
 			if (!response.ok) {
 				// Check if this is a usage limit error
-				if (response.status === 429 && data?.error?.errorType === 'USAGE_LIMIT_EXCEEDED') {
+				if (
+					response.status === 429 &&
+					data?.error?.errorType === 'USAGE_LIMIT_EXCEEDED'
+				) {
 					// Emit custom event for usage limit exceeded
-					window.dispatchEvent(new CustomEvent('usage-limit-exceeded', {
-						detail: {
-							message: data.error.message,
-							exceededLimits: data.error.exceededLimits,
-							hasUserToken: data.error.hasUserToken,
-						}
-					}));
+					window.dispatchEvent(
+						new CustomEvent('usage-limit-exceeded', {
+							detail: {
+								message: data.error.message,
+								exceededLimits: data.error.exceededLimits,
+								hasUserToken: data.error.hasUserToken,
+							},
+						}),
+					);
 
-					const errorMessage = data.error.message || 'Free tier limits exceeded';
+					const errorMessage =
+						data.error.message || 'Free tier limits exceeded';
 					throw new Error(errorMessage);
 				}
 
 				// Parse error response if available
-				const errorMessage = data?.error?.message || `Agent creation failed with status: ${response.status}`;
+				const errorMessage =
+					data?.error?.message ||
+					`Agent creation failed with status: ${response.status}`;
 				throw new Error(errorMessage);
 			}
 
 			return {
 				success: true,
-				stream: response
+				stream: response,
 			};
 		} catch (error) {
 			// Handle any network or parsing errors
-			const errorMessage = error instanceof Error ? error.message : 'Failed to create agent session';
+			const errorMessage =
+				error instanceof Error
+					? error.message
+					: 'Failed to create agent session';
 			toast.error(errorMessage);
 
-            throw new Error(errorMessage);
+			throw new Error(errorMessage);
 		}
 	}
 
@@ -755,7 +808,9 @@ class ApiClient {
 	 * Get BYOK providers and available models
 	 * @param agentAction - Optional agent action to filter models by constraints
 	 */
-	async getByokProviders(agentAction?: string): Promise<ApiResponse<ByokProvidersData>> {
+	async getByokProviders(
+		agentAction?: string,
+	): Promise<ApiResponse<ByokProvidersData>> {
 		const endpoint = agentAction
 			? `/api/model-configs/byok-providers?agentAction=${encodeURIComponent(agentAction)}`
 			: '/api/model-configs/byok-providers';
@@ -959,8 +1014,12 @@ class ApiClient {
 		return this.request<VaultStatusResponse>('/api/vault/status');
 	}
 
-	async getVaultConfig(): Promise<ApiResponse<{ config: VaultConfigResponse }>> {
-		return this.request<{ config: VaultConfigResponse }>('/api/vault/config');
+	async getVaultConfig(): Promise<
+		ApiResponse<{ config: VaultConfigResponse }>
+	> {
+		return this.request<{ config: VaultConfigResponse }>(
+			'/api/vault/config',
+		);
 	}
 
 	async setupVault(data: {
@@ -991,7 +1050,10 @@ class ApiClient {
 	 * This redirects to GitHub OAuth
 	 */
 	initiateGitHubOAuth(): void {
-		const oauthUrl = new URL('/api/github-app/authorize', window.location.origin);
+		const oauthUrl = new URL(
+			'/api/github-app/authorize',
+			window.location.origin,
+		);
 		window.location.href = oauthUrl.toString();
 	}
 
@@ -1004,14 +1066,16 @@ class ApiClient {
 		description?: string;
 		isPrivate?: boolean;
 		agentId: string;
-	}): Promise<ApiResponse<{
-		authUrl?: string;
-		success?: boolean;
-		repositoryUrl?: string;
-		skippedOAuth?: boolean;
-		alreadyExists?: boolean;
-		existingRepositoryUrl?: string;
-	}>> {
+	}): Promise<
+		ApiResponse<{
+			authUrl?: string;
+			success?: boolean;
+			repositoryUrl?: string;
+			skippedOAuth?: boolean;
+			alreadyExists?: boolean;
+			existingRepositoryUrl?: string;
+		}>
+	> {
 		return this.request('/api/github-app/export', {
 			method: 'POST',
 			body: data,
@@ -1024,17 +1088,19 @@ class ApiClient {
 	async checkRemoteStatus(data: {
 		repositoryUrl: string;
 		agentId: string;
-	}): Promise<ApiResponse<{
-		compatible: boolean;
-		behindBy: number;
-		aheadBy: number;
-		divergedCommits: Array<{
-			sha: string;
-			message: string;
-			author: string;
-			date: string;
-		}>;
-	}>> {
+	}): Promise<
+		ApiResponse<{
+			compatible: boolean;
+			behindBy: number;
+			aheadBy: number;
+			divergedCommits: Array<{
+				sha: string;
+				message: string;
+				author: string;
+				date: string;
+			}>;
+		}>
+	> {
 		return this.request('/api/github-app/check-remote', {
 			method: 'POST',
 			body: data,
@@ -1115,7 +1181,8 @@ class ApiClient {
 		const params = new URLSearchParams();
 		params.set('table', args.table);
 		if (args.limit !== undefined) params.set('limit', String(args.limit));
-		if (args.offset !== undefined) params.set('offset', String(args.offset));
+		if (args.offset !== undefined)
+			params.set('offset', String(args.offset));
 		if (args.orderBy) params.set('orderBy', args.orderBy);
 		if (args.orderDir) params.set('orderDir', args.orderDir);
 		if (args.branch) params.set('branch', args.branch);
@@ -1183,9 +1250,7 @@ class ApiClient {
 	/**
 	 * Create a new API key
 	 */
-	async createApiKey(data: {
-		name: string;
-	}): Promise<
+	async createApiKey(data: { name: string }): Promise<
 		ApiResponse<{
 			key: string;
 			keyPreview: string;
@@ -1259,17 +1324,28 @@ class ApiClient {
 	/**
 	 * Get current user profile
 	 */
-	async getProfile(noToast: boolean = false): Promise<ApiResponse<ProfileResponseData>> {
-		return this.request<ProfileResponseData>('/api/auth/profile', undefined, noToast);
+	async getProfile(
+		noToast: boolean = false,
+	): Promise<ApiResponse<ProfileResponseData>> {
+		return this.request<ProfileResponseData>(
+			'/api/auth/profile',
+			undefined,
+			noToast,
+		);
 	}
 
 	/**
 	 * Logout current user
 	 */
-	async logout(): Promise<ApiResponse<{ message: string }>> {
-		return this.request<{ message: string }>('/api/auth/logout', {
-			method: 'POST',
-		});
+	async logout(): Promise<
+		ApiResponse<{ message: string; logoutUrl?: string }>
+	> {
+		return this.request<{ message: string; logoutUrl?: string }>(
+			'/api/auth/logout',
+			{
+				method: 'POST',
+			},
+		);
 	}
 
 	/**
@@ -1345,19 +1421,28 @@ class ApiClient {
 	/**
 	 * Set user's selected Cloudflare account and gateway
 	 */
-	async setCloudflareSelection(accountId: string, gatewayId: string): Promise<ApiResponse<{ message: string }>> {
+	async setCloudflareSelection(
+		accountId: string,
+		gatewayId: string,
+	): Promise<ApiResponse<{ message: string }>> {
 		return this.request<{ message: string }>('/api/cloudflare/selection', {
 			method: 'PUT',
 			body: { accountId, gatewayId },
 		});
 	}
 
-	async connectCloudflare(returnUrl?: string): Promise<ApiResponse<CloudflareConnectResponseData>> {
+	async connectCloudflare(
+		returnUrl?: string,
+	): Promise<ApiResponse<CloudflareConnectResponseData>> {
 		const body: CloudflareConnectRequestData = { returnUrl };
-		return this.request<CloudflareConnectResponseData>('/api/cloudflare/connect', {
-			method: 'POST',
-			body,
-		}, true);
+		return this.request<CloudflareConnectResponseData>(
+			'/api/cloudflare/connect',
+			{
+				method: 'POST',
+				body,
+			},
+			true,
+		);
 	}
 
 	/**
@@ -1373,18 +1458,27 @@ class ApiClient {
 	/**
 	 * Get the user's resolved AI Gateway usage preference.
 	 */
-	async getAiGatewayPreference(): Promise<ApiResponse<{ enabled: boolean; isExplicit: boolean }>> {
-		return this.request<{ enabled: boolean; isExplicit: boolean }>('/api/cloudflare/ai-gateway-preference');
+	async getAiGatewayPreference(): Promise<
+		ApiResponse<{ enabled: boolean; isExplicit: boolean }>
+	> {
+		return this.request<{ enabled: boolean; isExplicit: boolean }>(
+			'/api/cloudflare/ai-gateway-preference',
+		);
 	}
 
 	/**
 	 * Set whether the user's own AI Gateway is used for inference.
 	 */
-	async setAiGatewayPreference(enabled: boolean): Promise<ApiResponse<{ enabled: boolean; isExplicit: boolean }>> {
-		return this.request<{ enabled: boolean; isExplicit: boolean }>('/api/cloudflare/ai-gateway-preference', {
-			method: 'PUT',
-			body: { enabled },
-		});
+	async setAiGatewayPreference(
+		enabled: boolean,
+	): Promise<ApiResponse<{ enabled: boolean; isExplicit: boolean }>> {
+		return this.request<{ enabled: boolean; isExplicit: boolean }>(
+			'/api/cloudflare/ai-gateway-preference',
+			{
+				method: 'PUT',
+				body: { enabled },
+			},
+		);
 	}
 }
 
