@@ -44,7 +44,10 @@ export const queryKeys = {
 		settings: {
 			all: () => [...queryKeys.account.all, 'settings'] as const,
 			activeSessionsAll: () =>
-				[...queryKeys.account.settings.all(), 'active-sessions'] as const,
+				[
+					...queryKeys.account.settings.all(),
+					'active-sessions',
+				] as const,
 			activeSessions: (userId?: string | null) =>
 				[
 					...queryKeys.account.settings.activeSessionsAll(),
@@ -55,6 +58,13 @@ export const queryKeys = {
 			apiKeys: (userId?: string | null) =>
 				[
 					...queryKeys.account.settings.apiKeysAll(),
+					userId ?? 'anonymous',
+				] as const,
+			modelConfigsAll: () =>
+				[...queryKeys.account.settings.all(), 'model-configs'] as const,
+			modelConfigs: (userId?: string | null) =>
+				[
+					...queryKeys.account.settings.modelConfigsAll(),
 					userId ?? 'anonymous',
 				] as const,
 		},
@@ -81,7 +91,11 @@ export const queryKeys = {
 					userId ?? 'anonymous',
 				] as const,
 			previewTokenAll: (appId: string) =>
-				[...queryKeys.account.apps.all(), 'preview-token', appId] as const,
+				[
+					...queryKeys.account.apps.all(),
+					'preview-token',
+					appId,
+				] as const,
 			previewToken: (appId: string, userId?: string | null) =>
 				[
 					...queryKeys.account.apps.previewTokenAll(appId),

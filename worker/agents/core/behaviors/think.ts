@@ -7,14 +7,23 @@ import { BaseCodingBehavior } from './base';
 import { WebSocketMessageResponses } from '../../constants';
 import { ICodingAgent } from '../../services/interfaces/ICodingAgent';
 import { OperationOptions } from '../../operations/common';
-import { GenerationContext, AgenticGenerationContext } from '../../domain/values/GenerationContext';
-import { ImageAttachment, ProcessedImageAttachment } from 'worker/types/image-attachment';
+import {
+	GenerationContext,
+	AgenticGenerationContext,
+} from '../../domain/values/GenerationContext';
+import {
+	ImageAttachment,
+	ProcessedImageAttachment,
+} from 'worker/types/image-attachment';
 import { ImageType, uploadImage } from 'worker/utils/images';
 import { IdGenerator } from '../../utils/idGenerator';
 import { generateNanoId } from '../../../utils/idGenerator';
 import { generateProjectName } from '../../utils/templateCustomizer';
 import { deriveShortTitle } from '../../utils/titleGenerator';
-import { PreviewType, TemplateDetails } from 'worker/services/sandbox/sandboxTypes';
+import {
+	PreviewType,
+	TemplateDetails,
+} from 'worker/services/sandbox/sandboxTypes';
 import {
 	buildSpacePreviewPath,
 	getPreviewDomain,
@@ -27,10 +36,15 @@ import { AppService } from 'worker/database/services/AppService';
 import { getConfigurationForModel } from '../../inferutils/core';
 import type { ThinkAgentConfig } from '../../think/ThinkAgent';
 import { withDurableObjectResetRetry } from '../../think/space-workspace-ops';
-import { THINK_MODEL_CONFIG, THINK_MODEL_ID } from '../../think/model-config';
+import { AI_MODEL_CONFIG, AIModels } from '../../inferutils/config.types';
+import { ModelConfigService } from '../../../database/services/ModelConfigService';
+import { buildAigMetadataHeader } from '../../../services/aigateway/metadata';
 import type { BranchDeploymentBundle } from '@space-do/space';
 import { CloudflareAccountService } from '../../../services/cloudflare/CloudflareAccountService';
-import { deployThinkBundleToPlatform, deployThinkBundleToUserAccount } from '../../../services/deployer/think-user-deploy';
+import {
+	deployThinkBundleToPlatform,
+	deployThinkBundleToUserAccount,
+} from '../../../services/deployer/think-user-deploy';
 import { resolveCloudflareAccessToken } from '../../../services/rate-limit/usageChecker';
 import type { CloudflareDeploymentErrorCode } from '../../../api/websocketTypes';
 
@@ -48,15 +62,24 @@ type ThinkAgentStub = {
 /** SpaceDO RPC surface this behavior drives (see `space/src/space/durable-object.ts`). */
 type SpaceRpcStub = {
 	writeFile: (path: string, content: string) => Promise<unknown>;
-	readFile: (path: string, opts?: { offset?: number; limit?: number }) => Promise<string>;
+	readFile: (
+		path: string,
+		opts?: { offset?: number; limit?: number },
+	) => Promise<string>;
 	gitCommit: (
 		msg: string,
 		author?: { name: string; email: string },
 	) => Promise<{ sha?: string }>;
-	gitCommitLocal: (msg: string, author?: { name: string; email: string }) => Promise<unknown>;
-	deploy: (
-		branch: string,
-	) => Promise<{ preview_url?: string; commit_hash?: string; error?: string; details?: string }>;
+	gitCommitLocal: (
+		msg: string,
+		author?: { name: string; email: string },
+	) => Promise<unknown>;
+	deploy: (branch: string) => Promise<{
+		preview_url?: string;
+		commit_hash?: string;
+		error?: string;
+		details?: string;
+	}>;
 	getDeploymentBundle: (branch: string) => Promise<BranchDeploymentBundle>;
 	rollbackToCommit: (branch: string, commitHash: string) => Promise<unknown>;
 };
@@ -68,7 +91,12 @@ type ThinkChunk =
 	| { type: 'reasoning-delta'; id: string; delta: string }
 	| { type: 'reasoning-end'; id: string }
 	| { type: 'tool-input-start'; toolCallId: string; toolName: string }
-	| { type: 'tool-input-available'; toolCallId: string; toolName: string; input: unknown }
+	| {
+			type: 'tool-input-available';
+			toolCallId: string;
+			toolName: string;
+			input: unknown;
+	  }
 	| { type: 'tool-output-available'; toolCallId: string; output: unknown }
 	| { type: 'tool-output-error'; toolCallId: string; errorText: string }
 	| { type: 'finish' }
@@ -110,10 +138,13 @@ class ThinkStreamForwarder extends RpcTarget {
  */
 export class ThinkCodingBehavior
 	extends BaseCodingBehavior<ThinkState>
-	implements ICodingAgent {
+	implements ICodingAgent
+{
 	protected static readonly PROJECT_NAME_PREFIX_MAX_LENGTH = 20;
 
-	override getBehavior(): 'think' { return 'think'; }
+	override getBehavior(): 'think' {
+		return 'think';
+	}
 
 	// ──────────────────────────────────────────────────────────────
 	// DO stubs
@@ -125,7 +156,8 @@ export class ThinkCodingBehavior
 	 * a raw stub leaves those undefined and `chat()` throws on `appendMessage`.
 	 */
 	private async getThinkStub(): Promise<ThinkAgentStub> {
-		const ns = (this.env as unknown as { THINK_DO: DurableObjectNamespace }).THINK_DO;
+		const ns = (this.env as unknown as { THINK_DO: DurableObjectNamespace })
+			.THINK_DO;
 		const name = this.state.thinkAgentName || this.getAgentId();
 		const stub = await getAgentByName(ns as never, name);
 		return stub as unknown as ThinkAgentStub;
@@ -133,7 +165,8 @@ export class ThinkCodingBehavior
 
 	private getSpaceStub(): DurableObjectStub {
 		// One space per session: always keyed by the agent (session) id.
-		const ns = (this.env as unknown as { SPACE_DO: DurableObjectNamespace }).SPACE_DO;
+		const ns = (this.env as unknown as { SPACE_DO: DurableObjectNamespace })
+			.SPACE_DO;
 		return ns.get(ns.idFromName(this.getAgentId()));
 	}
 
@@ -142,7 +175,9 @@ export class ThinkCodingBehavior
 	 * error thrown on in-flight calls when the worker version changes (deploy /
 	 * dev rebuild). The stub is re-resolved so the retry hits the new instance.
 	 */
-	private callSpace<T>(call: (space: SpaceRpcStub) => Promise<T>): Promise<T> {
+	private callSpace<T>(
+		call: (space: SpaceRpcStub) => Promise<T>,
+	): Promise<T> {
 		return withDurableObjectResetRetry(
 			() => this.getSpaceStub() as unknown as SpaceRpcStub,
 			call,
@@ -159,7 +194,8 @@ export class ThinkCodingBehavior
 		await super.initialize(initArgs);
 		// Think projects are template-free: SpaceDO + the agent's own file tools
 		// own scaffolding entirely. We intentionally ignore `templateInfo`.
-		const { query, hostname, inferenceContext, sandboxSessionId } = initArgs;
+		const { query, hostname, inferenceContext, sandboxSessionId } =
+			initArgs;
 
 		const baseName = (query || 'project').toString();
 		const projectName = generateProjectName(
@@ -218,10 +254,21 @@ export class ThinkCodingBehavior
 		const inf = this.getInferenceContext();
 		const userId = this.state.metadata.userId;
 
-		const modelName = THINK_MODEL_ID;
-		const aiModelConfig = THINK_MODEL_CONFIG;
+		// Resolved per-turn (not just at init) so switching the 'think' model in
+		// Settings mid-session takes effect on the user's next message.
+		const modelConfigService = new ModelConfigService(this.env);
+		const resolvedModel = await modelConfigService.getUserModelConfig(
+			userId,
+			'think',
+		);
+		const modelName = resolvedModel.name;
+		const aiModelConfig = AI_MODEL_CONFIG[modelName as AIModels];
 
-		let conf: { baseURL: string; apiKey: string; defaultHeaders?: Record<string, string> };
+		let conf: {
+			baseURL: string;
+			apiKey: string;
+			defaultHeaders?: Record<string, string>;
+		};
 		try {
 			conf = await getConfigurationForModel(
 				aiModelConfig,
@@ -233,7 +280,10 @@ export class ThinkCodingBehavior
 				null,
 			);
 		} catch (e) {
-			this.logger.warn('Failed to resolve model gateway config for ThinkAgent', e);
+			this.logger.warn(
+				'Failed to resolve model gateway config for ThinkAgent',
+				e,
+			);
 			return;
 		}
 
@@ -247,12 +297,21 @@ export class ThinkCodingBehavior
 			CLOUDFLARE_AI_GATEWAY_TOKEN?: string;
 			CLOUDFLARE_API_TOKEN?: string;
 		};
-		const gatewayToken = tokenEnv.CLOUDFLARE_AI_GATEWAY_TOKEN || tokenEnv.CLOUDFLARE_API_TOKEN;
+		const gatewayToken =
+			tokenEnv.CLOUDFLARE_AI_GATEWAY_TOKEN ||
+			tokenEnv.CLOUDFLARE_API_TOKEN;
 		const usesStoredKeys = !conf.defaultHeaders?.['cf-aig-authorization'];
-		const headers: Record<string, string> = { ...(conf.defaultHeaders ?? {}) };
+		const headers: Record<string, string> = {
+			...(conf.defaultHeaders ?? {}),
+		};
 		if (gatewayToken && !headers['cf-aig-authorization']) {
 			headers['cf-aig-authorization'] = `Bearer ${gatewayToken}`;
 		}
+		headers['cf-aig-metadata'] = buildAigMetadataHeader({
+			userId,
+			agentId: this.getAgentId(),
+			surface: 'think',
+		});
 
 		// Target the gateway by account + gateway ID (the `CLOUDFLARE_AI_GATEWAY`
 		// binding), forwarding `CLOUDFLARE_GATEWAY_ID: env.CLOUDFLARE_AI_GATEWAY`.
@@ -276,9 +335,15 @@ export class ThinkCodingBehavior
 				contextSize: aiModelConfig.contextSize,
 				headers: Object.keys(headers).length > 0 ? headers : undefined,
 				useStoredKeys: usesStoredKeys,
+				creditCost: aiModelConfig.creditCost,
 			},
-			systemPrompt: this.buildSystemPrompt(modelName, aiModelConfig.provider),
-			previewUrl: await this.getBrowserPreviewURL(0).catch(() => undefined),
+			systemPrompt: this.buildSystemPrompt(
+				modelName,
+				aiModelConfig.provider,
+			),
+			previewUrl: await this.getBrowserPreviewURL(0).catch(
+				() => undefined,
+			),
 		};
 
 		try {
@@ -337,13 +402,21 @@ export class ThinkCodingBehavior
 	 */
 	private async seedEmptySpace(): Promise<void> {
 		const marker = JSON.stringify(
-			{ agentId: this.getAgentId(), createdAt: new Date().toISOString(), seededBy: 'vibesdk-think' },
+			{
+				agentId: this.getAgentId(),
+				createdAt: new Date().toISOString(),
+				seededBy: 'vibesdk-think',
+			},
 			null,
 			2,
 		);
 		try {
-			await this.callSpace((space) => space.writeFile('.think/space.json', marker));
-			await this.callSpace((space) => space.gitCommitLocal('chore: initialize think space'));
+			await this.callSpace((space) =>
+				space.writeFile('.think/space.json', marker),
+			);
+			await this.callSpace((space) =>
+				space.gitCommitLocal('chore: initialize think space'),
+			);
 		} catch (e) {
 			this.logger.warn('SpaceDO empty-seed failed (continuing)', e);
 		}
@@ -371,7 +444,9 @@ export class ThinkCodingBehavior
 		return `https://${host}`;
 	}
 
-	public async getBrowserPreviewURL(previewVersionOverride?: number): Promise<string> {
+	public async getBrowserPreviewURL(
+		previewVersionOverride?: number,
+	): Promise<string> {
 		const spaceName = this.getAgentId();
 		const branch = this.state.currentBranch || 'main';
 		const previewBaseUrl = `${await this.getPublicOrigin()}${buildSpacePreviewPath(spaceName, branch)}`;
@@ -381,8 +456,10 @@ export class ThinkCodingBehavior
 		// `get_browser_console_logs` browser, which carry no cookie.
 		// Embed the app's current preview-token revocation epoch so a later
 		// visibility toggle (which bumps it) invalidates this token.
-		const previewVersion = previewVersionOverride ??
-			(await new AppService(this.env).getPreviewVersion(spaceName)) ?? 0;
+		const previewVersion =
+			previewVersionOverride ??
+			(await new AppService(this.env).getPreviewVersion(spaceName)) ??
+			0;
 		const token = await signSpacePreviewToken(this.env, {
 			spaceName,
 			branch,
@@ -396,7 +473,10 @@ export class ThinkCodingBehavior
 		if (!this.templateDetailsCache) {
 			this.templateDetailsCache = {
 				name: 'think',
-				description: { selection: 'think', usage: 'think (template-free)' },
+				description: {
+					selection: 'think',
+					usage: 'think (template-free)',
+				},
 				fileTree: { path: '/', type: 'directory', children: [] },
 				allFiles: {},
 				deps: {},
@@ -424,7 +504,9 @@ export class ThinkCodingBehavior
 			currentPlan: '',
 		};
 		const context = GenerationContext.from(
-			agenticLike as unknown as Parameters<typeof GenerationContext.from>[0],
+			agenticLike as unknown as Parameters<
+				typeof GenerationContext.from
+			>[0],
 			this.getTemplateDetails(),
 			this.logger,
 		);
@@ -438,11 +520,16 @@ export class ThinkCodingBehavior
 		};
 	}
 
-	async handleUserInput(userMessage: string, images?: ImageAttachment[]): Promise<void> {
+	async handleUserInput(
+		userMessage: string,
+		images?: ImageAttachment[],
+	): Promise<void> {
 		let processedImages: ProcessedImageAttachment[] | undefined;
 		if (images && images.length > 0) {
 			processedImages = await Promise.all(
-				images.map((image) => uploadImage(this.env, image, ImageType.UPLOADS)),
+				images.map((image) =>
+					uploadImage(this.env, image, ImageType.UPLOADS),
+				),
 			);
 		}
 		await this.queueUserRequest(userMessage, processedImages);
@@ -463,8 +550,15 @@ export class ThinkCodingBehavior
 
 	/** Main loop: drain pendingUserInputs by driving the ThinkAgent. */
 	async build(): Promise<void> {
-		if (!this.isMVPGenerated() && this.state.query && this.state.pendingUserInputs.length === 0) {
-			this.setState({ ...this.state, pendingUserInputs: [this.state.query] });
+		if (
+			!this.isMVPGenerated() &&
+			this.state.query &&
+			this.state.pendingUserInputs.length === 0
+		) {
+			this.setState({
+				...this.state,
+				pendingUserInputs: [this.state.query],
+			});
 		}
 
 		while (this.state.pendingUserInputs.length > 0) {
@@ -473,6 +567,10 @@ export class ThinkCodingBehavior
 
 			const compiled = pending.join('\n');
 			try {
+				// Re-resolve the 'think' model config before every turn so a
+				// mid-session model switch in Settings takes effect on the next
+				// message, not just at agent init.
+				await this.configureThinkAgent();
 				await this.runPrompt(compiled);
 			} catch (e) {
 				this.logger.error('Think prompt failed', e);
@@ -517,9 +615,17 @@ export class ThinkCodingBehavior
 				} catch {
 					return;
 				}
-				return this.translateChunk(chunk, conversationId, accumulated, seenWrittenFiles, toolNames, toolInputs);
+				return this.translateChunk(
+					chunk,
+					conversationId,
+					accumulated,
+					seenWrittenFiles,
+					toolNames,
+					toolInputs,
+				);
 			},
-			(err) => this.broadcast(WebSocketMessageResponses.ERROR, { error: err }),
+			(err) =>
+				this.broadcast(WebSocketMessageResponses.ERROR, { error: err }),
 		);
 
 		const stub = await this.getThinkStub();
@@ -529,19 +635,25 @@ export class ThinkCodingBehavior
 			this.broadcast(WebSocketMessageResponses.USAGE_UPDATED, {
 				message: 'Usage data updated',
 			});
-			const disposeSymbol = (Symbol as unknown as { dispose?: symbol }).dispose;
+			const disposeSymbol = (Symbol as unknown as { dispose?: symbol })
+				.dispose;
 			if (disposeSymbol) {
-				const dispose = (forwarder as unknown as Record<symbol, unknown>)[disposeSymbol];
+				const dispose = (
+					forwarder as unknown as Record<symbol, unknown>
+				)[disposeSymbol];
 				if (typeof dispose === 'function') dispose.call(forwarder);
 			}
 			// Think's non-streaming finalize: the FE replaces content with this
 			// terminal payload, so only send it when we actually accumulated text.
 			if (accumulated.text) {
-				this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-					message: accumulated.text,
-					conversationId,
-					isStreaming: false,
-				});
+				this.broadcast(
+					WebSocketMessageResponses.CONVERSATION_RESPONSE,
+					{
+						message: accumulated.text,
+						conversationId,
+						isStreaming: false,
+					},
+				);
 			}
 		}
 	}
@@ -559,98 +671,161 @@ export class ThinkCodingBehavior
 				const delta = (chunk as { delta?: string }).delta;
 				if (typeof delta === 'string' && delta.length > 0) {
 					accumulated.text += delta;
-					this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-						message: delta,
-						conversationId,
-						isStreaming: true,
-						isDelta: true,
-					});
+					this.broadcast(
+						WebSocketMessageResponses.CONVERSATION_RESPONSE,
+						{
+							message: delta,
+							conversationId,
+							isStreaming: true,
+							isDelta: true,
+						},
+					);
 				}
 				return;
 			}
 			case 'reasoning-delta': {
 				const delta = (chunk as { delta?: string }).delta;
 				if (typeof delta === 'string' && delta.length > 0) {
-					this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-						message: '',
-						conversationId,
-						isStreaming: true,
-						reasoning: { delta },
-					});
+					this.broadcast(
+						WebSocketMessageResponses.CONVERSATION_RESPONSE,
+						{
+							message: '',
+							conversationId,
+							isStreaming: true,
+							reasoning: { delta },
+						},
+					);
 				}
 				return;
 			}
 			case 'reasoning-end': {
-				this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-					message: '',
-					conversationId,
-					isStreaming: true,
-					reasoning: { done: true },
-				});
+				this.broadcast(
+					WebSocketMessageResponses.CONVERSATION_RESPONSE,
+					{
+						message: '',
+						conversationId,
+						isStreaming: true,
+						reasoning: { done: true },
+					},
+				);
 				return;
 			}
 			case 'tool-input-start': {
-				const { toolCallId, toolName } = chunk as { toolCallId: string; toolName: string };
+				const { toolCallId, toolName } = chunk as {
+					toolCallId: string;
+					toolName: string;
+				};
 				toolNames.set(toolCallId, toolName);
-				this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-					message: '',
-					conversationId,
-					isStreaming: true,
-					tool: this.buildToolBroadcastPayload(toolName, undefined, 'start', toolCallId),
-				});
+				this.broadcast(
+					WebSocketMessageResponses.CONVERSATION_RESPONSE,
+					{
+						message: '',
+						conversationId,
+						isStreaming: true,
+						tool: this.buildToolBroadcastPayload(
+							toolName,
+							undefined,
+							'start',
+							toolCallId,
+						),
+					},
+				);
 				return;
 			}
 			case 'tool-input-available': {
 				const { toolCallId, toolName, input } = chunk as {
-					toolCallId: string; toolName: string; input: unknown;
+					toolCallId: string;
+					toolName: string;
+					input: unknown;
 				};
 				toolNames.set(toolCallId, toolName);
-				const args = (input && typeof input === 'object') ? (input as Record<string, unknown>) : {};
+				const args =
+					input && typeof input === 'object'
+						? (input as Record<string, unknown>)
+						: {};
 				toolInputs.set(toolCallId, args);
 				if (isFileWriteTool(toolName)) {
-					const filePath = pickStringField(args, 'path', 'filePath', 'file');
+					const filePath = pickStringField(
+						args,
+						'path',
+						'filePath',
+						'file',
+					);
 					if (filePath && !seenWrittenFiles.has(filePath)) {
 						const displayPath = filePath.replace(/^\/+/, '');
-						this.broadcast(WebSocketMessageResponses.FILE_GENERATING, {
-							message: `Writing ${displayPath}`,
-							filePath: displayPath,
-							filePurpose: 'Generated by think',
-						});
+						this.broadcast(
+							WebSocketMessageResponses.FILE_GENERATING,
+							{
+								message: `Writing ${displayPath}`,
+								filePath: displayPath,
+								filePurpose: 'Generated by think',
+							},
+						);
 					}
 				}
 				return;
 			}
 			case 'tool-output-available': {
-				const { toolCallId, output } = chunk as { toolCallId: string; output: unknown };
+				const { toolCallId, output } = chunk as {
+					toolCallId: string;
+					output: unknown;
+				};
 				const toolName = toolNames.get(toolCallId) || 'tool';
 				const args = toolInputs.get(toolCallId) || {};
-				this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-					message: '',
-					conversationId,
-					isStreaming: false,
-					tool: this.buildToolBroadcastPayload(toolName, { input: args, output }, 'success', toolCallId),
-				});
+				this.broadcast(
+					WebSocketMessageResponses.CONVERSATION_RESPONSE,
+					{
+						message: '',
+						conversationId,
+						isStreaming: false,
+						tool: this.buildToolBroadcastPayload(
+							toolName,
+							{ input: args, output },
+							'success',
+							toolCallId,
+						),
+					},
+				);
 				if (toolName === 'deploy_space') {
 					await this.handleDeploySpaceOutput(output);
 				} else if (toolName === 'set_title') {
 					await this.handleSetTitleOutput(args, output);
 				} else if (isFileDeleteTool(toolName)) {
-					await this.maybeDeleteFile(toolName, args, seenWrittenFiles);
+					await this.maybeDeleteFile(
+						toolName,
+						args,
+						seenWrittenFiles,
+					);
 				} else {
-					await this.maybeMirrorFile(toolName, args, seenWrittenFiles);
+					await this.maybeMirrorFile(
+						toolName,
+						args,
+						seenWrittenFiles,
+					);
 				}
 				return;
 			}
 			case 'tool-output-error': {
-				const { toolCallId, errorText } = chunk as { toolCallId: string; errorText: string };
+				const { toolCallId, errorText } = chunk as {
+					toolCallId: string;
+					errorText: string;
+				};
 				const toolName = toolNames.get(toolCallId) || 'tool';
 				const args = toolInputs.get(toolCallId) || {};
-				this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
-					message: '',
-					conversationId,
-					isStreaming: false,
-					tool: this.buildToolBroadcastPayload(toolName, { input: args, error: errorText }, 'error', toolCallId),
-				});
+				this.broadcast(
+					WebSocketMessageResponses.CONVERSATION_RESPONSE,
+					{
+						message: '',
+						conversationId,
+						isStreaming: false,
+						tool: this.buildToolBroadcastPayload(
+							toolName,
+							{ input: args, error: errorText },
+							'error',
+							toolCallId,
+						),
+					},
+				);
 				return;
 			}
 			default:
@@ -660,19 +835,39 @@ export class ThinkCodingBehavior
 
 	private buildToolBroadcastPayload(
 		toolName: string,
-		state: { input?: Record<string, unknown>; output?: unknown; error?: string } | undefined,
+		state:
+			| {
+					input?: Record<string, unknown>;
+					output?: unknown;
+					error?: string;
+			  }
+			| undefined,
 		status: 'start' | 'success' | 'error',
 		id?: string,
-	): { name: string; status: 'start' | 'success' | 'error'; args?: Record<string, unknown>; result?: string; id?: string } {
-		const payload: { name: string; status: 'start' | 'success' | 'error'; args?: Record<string, unknown>; result?: string; id?: string } = {
+	): {
+		name: string;
+		status: 'start' | 'success' | 'error';
+		args?: Record<string, unknown>;
+		result?: string;
+		id?: string;
+	} {
+		const payload: {
+			name: string;
+			status: 'start' | 'success' | 'error';
+			args?: Record<string, unknown>;
+			result?: string;
+			id?: string;
+		} = {
 			name: toolName,
 			status,
 			args: state?.input,
 			id,
 		};
 		if (status === 'success') {
-			if (typeof state?.output === 'string') payload.result = state.output;
-			else if (state?.output !== undefined) payload.result = JSON.stringify(state.output);
+			if (typeof state?.output === 'string')
+				payload.result = state.output;
+			else if (state?.output !== undefined)
+				payload.result = JSON.stringify(state.output);
 		} else if (status === 'error') {
 			if (typeof state?.error === 'string') payload.result = state.error;
 		}
@@ -691,9 +886,13 @@ export class ThinkCodingBehavior
 
 		let contents = '';
 		try {
-			contents = await this.callSpace((space) => space.readFile(filePath));
+			contents = await this.callSpace((space) =>
+				space.readFile(filePath),
+			);
 		} catch {
-			contents = pickStringField(args, 'content', 'contents', 'new_string') || '';
+			contents =
+				pickStringField(args, 'content', 'contents', 'new_string') ||
+				'';
 		}
 
 		// SpaceDO uses absolute paths (leading slash); the editor pane and the
@@ -702,7 +901,11 @@ export class ThinkCodingBehavior
 		const displayPath = filePath.replace(/^\/+/, '');
 		try {
 			const saved = await this.fileManager.saveGeneratedFile(
-				{ filePath: displayPath, fileContents: contents, filePurpose: 'Generated by think' },
+				{
+					filePath: displayPath,
+					fileContents: contents,
+					filePurpose: 'Generated by think',
+				},
 				undefined,
 				true,
 			);
@@ -711,7 +914,10 @@ export class ThinkCodingBehavior
 				file: saved,
 			});
 		} catch (e) {
-			this.logger.warn('Failed to mirror think file write', { filePath: displayPath, e });
+			this.logger.warn('Failed to mirror think file write', {
+				filePath: displayPath,
+				e,
+			});
 		}
 	}
 
@@ -738,7 +944,10 @@ export class ThinkCodingBehavior
 				filePath: displayPath,
 			});
 		} catch (e) {
-			this.logger.warn('Failed to mirror think file delete', { filePath: displayPath, e });
+			this.logger.warn('Failed to mirror think file delete', {
+				filePath: displayPath,
+				e,
+			});
 		}
 	}
 
@@ -752,23 +961,34 @@ export class ThinkCodingBehavior
 	private async handleDeploySpaceOutput(output: unknown): Promise<void> {
 		let parsed: Record<string, unknown> | undefined;
 		if (typeof output === 'string') {
-			try { parsed = JSON.parse(output) as Record<string, unknown>; } catch { parsed = undefined; }
+			try {
+				parsed = JSON.parse(output) as Record<string, unknown>;
+			} catch {
+				parsed = undefined;
+			}
 		} else if (output && typeof output === 'object') {
 			parsed = output as Record<string, unknown>;
 		}
 
 		if (parsed && typeof parsed.error === 'string') {
-			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, { error: parsed.error });
+			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, {
+				error: parsed.error,
+			});
 			return;
 		}
 
-		const commitHash = parsed && typeof parsed.commit_hash === 'string' ? parsed.commit_hash : undefined;
+		const commitHash =
+			parsed && typeof parsed.commit_hash === 'string'
+				? parsed.commit_hash
+				: undefined;
 		if (commitHash) {
 			this.setState({ ...this.state, lastDeployedCommit: commitHash });
 		}
 		try {
 			const url = await this.getBrowserPreviewURL();
-			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_COMPLETED, { previewURL: url });
+			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_COMPLETED, {
+				previewURL: url,
+			});
 		} catch (e) {
 			this.logger.warn('Failed to surface preview after deploy_space', e);
 		}
@@ -783,7 +1003,9 @@ export class ThinkCodingBehavior
 	async rollbackToCommit(commitHash: string): Promise<void> {
 		const hash = (commitHash ?? '').trim();
 		if (!hash) {
-			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, { error: 'Missing commit hash for rollback' });
+			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, {
+				error: 'Missing commit hash for rollback',
+			});
 			return;
 		}
 		if (this.isCodeGenerating()) {
@@ -795,7 +1017,9 @@ export class ThinkCodingBehavior
 
 		const branch = this.state.currentBranch || 'main';
 		try {
-			const output = await this.callSpace((space) => space.rollbackToCommit(branch, hash));
+			const output = await this.callSpace((space) =>
+				space.rollbackToCommit(branch, hash),
+			);
 			await this.handleDeploySpaceOutput(output);
 			this.broadcast(WebSocketMessageResponses.CONVERSATION_RESPONSE, {
 				message: `Rolled back to commit \`${hash.slice(0, 8)}\` and redeployed.`,
@@ -849,9 +1073,14 @@ export class ThinkCodingBehavior
 			blueprint: updatedBlueprint,
 		});
 		try {
-			await new AppService(this.env).updateApp(this.getAgentId(), { title: shortTitle });
+			await new AppService(this.env).updateApp(this.getAgentId(), {
+				title: shortTitle,
+			});
 		} catch (error) {
-			this.logger.warn('Failed to persist project title', { title: shortTitle, error });
+			this.logger.warn('Failed to persist project title', {
+				title: shortTitle,
+				error,
+			});
 		}
 		this.broadcast(WebSocketMessageResponses.BLUEPRINT_UPDATED, {
 			message: 'Project title updated',
@@ -868,30 +1097,49 @@ export class ThinkCodingBehavior
 			// SpaceDO.deploy reads files from the committed git branch, so commit
 			// the working-tree changes the ThinkAgent's tools just made first.
 			try {
-				await this.callSpace((space) => space.gitCommit('chore: think turn changes'));
+				await this.callSpace((space) =>
+					space.gitCommit('chore: think turn changes'),
+				);
 			} catch (e) {
-				this.logger.debug('gitCommit before deploy (no-op or failed)', e);
+				this.logger.debug(
+					'gitCommit before deploy (no-op or failed)',
+					e,
+				);
 			}
 
-			const result = await this.callSpace((space) => space.deploy(branch));
+			const result = await this.callSpace((space) =>
+				space.deploy(branch),
+			);
 
 			// SpaceDO.deploy reports build/config failures in the payload rather
 			// than throwing (and still fills in preview_url). Surface those as a
 			// real deployment failure so the FE/agent sees the build error (e.g.
 			// a syntax error in the generated code) instead of a broken preview.
 			if (result?.error) {
-				const message = result.details ? `${result.error}: ${result.details}` : result.error;
-				this.logger.warn('SpaceDO.deploy reported a build failure', { branch, error: message });
-				this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, { error: message });
+				const message = result.details
+					? `${result.error}: ${result.details}`
+					: result.error;
+				this.logger.warn('SpaceDO.deploy reported a build failure', {
+					branch,
+					error: message,
+				});
+				this.broadcast(WebSocketMessageResponses.DEPLOYMENT_FAILED, {
+					error: message,
+				});
 				return null;
 			}
 
 			if (result?.commit_hash) {
-				this.setState({ ...this.state, lastDeployedCommit: result.commit_hash });
+				this.setState({
+					...this.state,
+					lastDeployedCommit: result.commit_hash,
+				});
 			}
 
 			const url = await this.getBrowserPreviewURL();
-			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_COMPLETED, { previewURL: url });
+			this.broadcast(WebSocketMessageResponses.DEPLOYMENT_COMPLETED, {
+				previewURL: url,
+			});
 			return url;
 		} catch (e) {
 			this.logger.warn('SpaceDO.deploy failed', e);
@@ -905,27 +1153,35 @@ export class ThinkCodingBehavior
 	async deployToCloudflare(
 		target: DeploymentTarget = 'user',
 	): Promise<{ deploymentUrl?: string; workersUrl?: string } | null> {
-		const userAccountDeployEnabled = this.env.ENABLE_USER_ACCOUNT_DEPLOY === 'true';
+		const userAccountDeployEnabled =
+			this.env.ENABLE_USER_ACCOUNT_DEPLOY === 'true';
 
 		if (!userAccountDeployEnabled) {
 			return this.deployThinkAppToPlatform();
 		}
 
 		if (target !== 'user') {
-			this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR, {
-				message: 'Think apps can only be deployed to your Cloudflare account',
-				error: `Unsupported deployment target "${target}"`,
-				instanceId: this.getAgentId(),
-			});
+			this.broadcast(
+				WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR,
+				{
+					message:
+						'Think apps can only be deployed to your Cloudflare account',
+					error: `Unsupported deployment target "${target}"`,
+					instanceId: this.getAgentId(),
+				},
+			);
 			return null;
 		}
 
 		const instanceId = this.getAgentId();
 		let gateCode: CloudflareDeploymentErrorCode | undefined;
-		this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_STARTED, {
-			message: 'Starting deployment to your Cloudflare account...',
-			instanceId,
-		});
+		this.broadcast(
+			WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_STARTED,
+			{
+				message: 'Starting deployment to your Cloudflare account...',
+				instanceId,
+			},
+		);
 		try {
 			const token = await resolveCloudflareAccessToken(
 				this.env,
@@ -934,54 +1190,88 @@ export class ThinkCodingBehavior
 				this.state.wsOrigin,
 			);
 			if (token.refreshedBlob) {
-				this.setState({ ...this.state, cloudflareToken: token.refreshedBlob });
+				this.setState({
+					...this.state,
+					cloudflareToken: token.refreshedBlob,
+				});
 			}
 			if (!token.accessToken) {
 				gateCode = 'cloudflare_not_connected';
-				throw new Error('Reconnect Cloudflare to grant Worker deployment access');
+				throw new Error(
+					'Reconnect Cloudflare to grant Worker deployment access',
+				);
 			}
 
 			// Deploying only needs an account ID — no AI Gateway selection.
 			// getDeployAccount falls back to the user's sole connected account
 			// and only returns null when the target account is ambiguous.
-			const account = await new CloudflareAccountService(this.env)
-				.getDeployAccount(this.state.metadata.userId);
+			const account = await new CloudflareAccountService(
+				this.env,
+			).getDeployAccount(this.state.metadata.userId);
 			if (!account) {
 				gateCode = 'cloudflare_not_configured';
-				throw new Error('Select a Cloudflare account in Settings before deploying');
+				throw new Error(
+					'Select a Cloudflare account in Settings before deploying',
+				);
 			}
 
 			const branch = this.state.currentBranch || 'main';
 			try {
-				await this.callSpace((space) => space.gitCommit('deploy: publish to user account'));
+				await this.callSpace((space) =>
+					space.gitCommit('deploy: publish to user account'),
+				);
 			} catch (error) {
-				this.logger.debug('No new workspace changes to commit before publishing', error);
+				this.logger.debug(
+					'No new workspace changes to commit before publishing',
+					error,
+				);
 			}
-			const bundle = await this.callSpace((space) => space.getDeploymentBundle(branch));
+			const bundle = await this.callSpace((space) =>
+				space.getDeploymentBundle(branch),
+			);
 			const result = await deployThinkBundleToUserAccount({
 				accountId: account.accountId,
 				accessToken: token.accessToken,
-				appName: this.state.blueprint.title || this.state.projectName || `vibe-${instanceId}`,
+				appName:
+					this.state.blueprint.title ||
+					this.state.projectName ||
+					`vibe-${instanceId}`,
 				bundle,
 			});
-			await new AppService(this.env).updateDeploymentId(instanceId, result.deploymentId);
-			this.setState({ ...this.state, cloudflareDeploymentUrl: result.deploymentUrl });
-			this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_COMPLETED, {
-				message: 'Successfully deployed to your Cloudflare account',
+			await new AppService(this.env).updateDeploymentId(
 				instanceId,
+				result.deploymentId,
+			);
+			this.setState({
+				...this.state,
+				cloudflareDeploymentUrl: result.deploymentUrl,
+			});
+			this.broadcast(
+				WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_COMPLETED,
+				{
+					message: 'Successfully deployed to your Cloudflare account',
+					instanceId,
+					deploymentUrl: result.deploymentUrl,
+					workersUrl: result.deploymentUrl,
+				},
+			);
+			return {
 				deploymentUrl: result.deploymentUrl,
 				workersUrl: result.deploymentUrl,
-			});
-			return { deploymentUrl: result.deploymentUrl, workersUrl: result.deploymentUrl };
+			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const message =
+				error instanceof Error ? error.message : String(error);
 			this.logger.error('Think user-account deployment failed', error);
-			this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR, {
-				message: 'Deployment failed',
-				instanceId,
-				error: message,
-				...(gateCode ? { code: gateCode } : {}),
-			});
+			this.broadcast(
+				WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR,
+				{
+					message: 'Deployment failed',
+					instanceId,
+					error: message,
+					...(gateCode ? { code: gateCode } : {}),
+				},
+			);
 			return null;
 		}
 	}
@@ -990,56 +1280,93 @@ export class ThinkCodingBehavior
 	 * Default think deploy when `ENABLE_USER_ACCOUNT_DEPLOY` is off: publish the
 	 * SpaceDO bundle to the platform's dispatch namespace with platform creds.
 	 */
-	private async deployThinkAppToPlatform(): Promise<{ deploymentUrl?: string; workersUrl?: string } | null> {
+	private async deployThinkAppToPlatform(): Promise<{
+		deploymentUrl?: string;
+		workersUrl?: string;
+	} | null> {
 		const instanceId = this.getAgentId();
-		this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_STARTED, {
-			message: 'Starting deployment to Cloudflare Workers...',
-			instanceId,
-		});
+		this.broadcast(
+			WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_STARTED,
+			{
+				message: 'Starting deployment to Cloudflare Workers...',
+				instanceId,
+			},
+		);
 		try {
 			const accountId = this.env.CLOUDFLARE_ACCOUNT_ID;
 			const apiToken = this.env.CLOUDFLARE_API_TOKEN;
 			if (!accountId || !apiToken) {
-				throw new Error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in environment');
+				throw new Error(
+					'CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in environment',
+				);
 			}
-			const dispatchNamespace = (this.env as unknown as { DISPATCH_NAMESPACE?: string })
-				.DISPATCH_NAMESPACE;
+			const dispatchNamespace = (
+				this.env as unknown as { DISPATCH_NAMESPACE?: string }
+			).DISPATCH_NAMESPACE;
 			if (!dispatchNamespace) {
-				throw new Error('DISPATCH_NAMESPACE not found in environment variables, cannot deploy without dispatch namespace');
+				throw new Error(
+					'DISPATCH_NAMESPACE not found in environment variables, cannot deploy without dispatch namespace',
+				);
 			}
 
 			const branch = this.state.currentBranch || 'main';
 			try {
-				await this.callSpace((space) => space.gitCommit('deploy: publish to platform'));
+				await this.callSpace((space) =>
+					space.gitCommit('deploy: publish to platform'),
+				);
 			} catch (error) {
-				this.logger.debug('No new workspace changes to commit before publishing', error);
+				this.logger.debug(
+					'No new workspace changes to commit before publishing',
+					error,
+				);
 			}
-			const bundle = await this.callSpace((space) => space.getDeploymentBundle(branch));
+			const bundle = await this.callSpace((space) =>
+				space.getDeploymentBundle(branch),
+			);
 			const result = await deployThinkBundleToPlatform({
 				accountId,
 				apiToken,
 				dispatchNamespace,
 				previewDomain: getPreviewDomain(this.env),
-				appName: this.state.blueprint.title || this.state.projectName || `vibe-${instanceId}`,
+				appName:
+					this.state.blueprint.title ||
+					this.state.projectName ||
+					`vibe-${instanceId}`,
 				bundle,
 			});
-			await new AppService(this.env).updateDeploymentId(instanceId, result.deploymentId);
-			this.setState({ ...this.state, cloudflareDeploymentUrl: result.deploymentUrl });
-			this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_COMPLETED, {
-				message: 'Successfully deployed to Cloudflare Workers',
+			await new AppService(this.env).updateDeploymentId(
 				instanceId,
+				result.deploymentId,
+			);
+			this.setState({
+				...this.state,
+				cloudflareDeploymentUrl: result.deploymentUrl,
+			});
+			this.broadcast(
+				WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_COMPLETED,
+				{
+					message: 'Successfully deployed to Cloudflare Workers',
+					instanceId,
+					deploymentUrl: result.deploymentUrl,
+					workersUrl: result.deploymentUrl,
+				},
+			);
+			return {
 				deploymentUrl: result.deploymentUrl,
 				workersUrl: result.deploymentUrl,
-			});
-			return { deploymentUrl: result.deploymentUrl, workersUrl: result.deploymentUrl };
+			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const message =
+				error instanceof Error ? error.message : String(error);
 			this.logger.error('Think platform deployment failed', error);
-			this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR, {
-				message: 'Deployment failed',
-				instanceId,
-				error: message,
-			});
+			this.broadcast(
+				WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR,
+				{
+					message: 'Deployment failed',
+					instanceId,
+					error: message,
+				},
+			);
 			return null;
 		}
 	}
@@ -1047,7 +1374,10 @@ export class ThinkCodingBehavior
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-function pickStringField(obj: Record<string, unknown>, ...keys: string[]): string | undefined {
+function pickStringField(
+	obj: Record<string, unknown>,
+	...keys: string[]
+): string | undefined {
 	for (const k of keys) {
 		const v = obj[k];
 		if (typeof v === 'string' && v.length > 0) return v;
