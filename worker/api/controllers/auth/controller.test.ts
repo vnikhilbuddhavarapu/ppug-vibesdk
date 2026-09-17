@@ -353,9 +353,7 @@ describe('AuthController.logout', () => {
 		const body = (await response.json()) as {
 			data: { logoutUrl?: string };
 		};
-		expect(body.data.logoutUrl).toBe(
-			'https://team.cloudflareaccess.com/cdn-cgi/access/logout',
-		);
+		expect(body.data.logoutUrl).toBe('/cdn-cgi/access/logout');
 	});
 
 	it('omits logoutUrl for a non-access session', async () => {

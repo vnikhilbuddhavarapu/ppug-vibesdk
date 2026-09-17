@@ -384,13 +384,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 			}
 		},
 		onSettled: async (logoutUrl) => {
-			// Access-originated sessions route through Access's own hosted
-			// logout so the browser drops its `CF_Authorization` cookie too;
-			// otherwise "Continue with Access" would silently re-authenticate.
-			// The full-page navigation away makes cache cleanup ordering moot.
+			// Access-originated sessions also need to drop the browser's
+			// `CF_Authorization` cookie, or "Continue with Access" would
+			// silently re-authenticate on the next click. `logoutUrl` is the
+			// same-origin `/cdn-cgi/access/logout` endpoint, so call it in the
+			// background instead of navigating away to the team domain.
 			if (logoutUrl) {
-				window.location.href = logoutUrl;
-				return;
+				try {
+					await fetch(logoutUrl, { credentials: 'include' });
+				} catch (err) {
+					console.error('Access logout error:', err);
+				}
 			}
 			// Navigate before dropping app caches: removing a still-observed
 			// query makes its observer refetch, and that request 401s and pops

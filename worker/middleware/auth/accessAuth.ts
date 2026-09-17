@@ -37,12 +37,18 @@ export function isAccessLoginEnabled(env: Env): boolean {
 	);
 }
 
-/** Cloudflare Access's hosted logout URL for the configured team domain. */
+/**
+ * Cloudflare Access's logout endpoint, scoped to our own application domain
+ * rather than the team domain. `/cdn-cgi/access/logout` has no redirect
+ * parameter — it's a same-origin cookie-clearing endpoint Access injects at
+ * the edge — so the frontend calls it via `fetch` in the background instead
+ * of navigating the browser away to `<team>.cloudflareaccess.com`.
+ */
 export function buildAccessLogoutUrl(env: Env): string | null {
 	if (!env.ACCESS_TEAM_DOMAIN) {
 		return null;
 	}
-	return `https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout`;
+	return '/cdn-cgi/access/logout';
 }
 
 /**

@@ -110,9 +110,9 @@ describe('accessAuth', () => {
 	});
 
 	describe('buildAccessLogoutUrl', () => {
-		it('builds the hosted logout URL from the team domain', () => {
+		it('returns the same-origin logout path when a team domain is configured', () => {
 			expect(buildAccessLogoutUrl(makeEnv())).toBe(
-				`https://${TEAM_DOMAIN}/cdn-cgi/access/logout`,
+				'/cdn-cgi/access/logout',
 			);
 		});
 
