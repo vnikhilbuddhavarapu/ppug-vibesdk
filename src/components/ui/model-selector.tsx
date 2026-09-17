@@ -102,7 +102,7 @@ export function ModelSelector({
   return (
     <div className={cn('space-y-2', className)}>
       <Label className="text-sm font-medium">{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={setOpen} modal={true}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
