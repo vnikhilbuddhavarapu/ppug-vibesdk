@@ -40,12 +40,17 @@ export function getByokModels(
 }
 
 export function getPlatformEnabledProviders(env: Env): string[] {
-    const platformModelProviders = env.PLATFORM_MODEL_PROVIDERS;
-    if (platformModelProviders) {
-        const providers = platformModelProviders.split(',').map(p => p.trim());
-        return providers;
-    }
-	const enabledProviders: string[] = [];
+	// 'workers-ai' is always platform-available: it routes through the same
+	// account token / AI Gateway the rest of the platform already requires,
+	// no separate BYOK provider key needed (unlike anthropic/openai/etc below).
+	const platformModelProviders = env.PLATFORM_MODEL_PROVIDERS;
+	if (platformModelProviders) {
+		const providers = platformModelProviders
+			.split(',')
+			.map((p) => p.trim());
+		return [...new Set([...providers, 'workers-ai'])];
+	}
+	const enabledProviders: string[] = ['workers-ai'];
 
 	const providerList = [
 		'anthropic',

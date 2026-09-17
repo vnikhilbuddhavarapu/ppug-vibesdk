@@ -38,6 +38,7 @@ import type { ThinkAgentConfig } from '../../think/ThinkAgent';
 import { withDurableObjectResetRetry } from '../../think/space-workspace-ops';
 import { AI_MODEL_CONFIG, AIModels } from '../../inferutils/config.types';
 import { ModelConfigService } from '../../../database/services/ModelConfigService';
+import { UserService } from '../../../database/services/UserService';
 import { buildAigMetadataHeader } from '../../../services/aigateway/metadata';
 import type { BranchDeploymentBundle } from '@space-do/space';
 import { CloudflareAccountService } from '../../../services/cloudflare/CloudflareAccountService';
@@ -307,8 +308,12 @@ export class ThinkCodingBehavior
 		if (gatewayToken && !headers['cf-aig-authorization']) {
 			headers['cf-aig-authorization'] = `Bearer ${gatewayToken}`;
 		}
+		const userRecord = await new UserService(this.env)
+			.findUser({ id: userId })
+			.catch(() => null);
 		headers['cf-aig-metadata'] = buildAigMetadataHeader({
 			userId,
+			userEmail: userRecord?.email,
 			agentId: this.getAgentId(),
 			surface: 'think',
 		});
