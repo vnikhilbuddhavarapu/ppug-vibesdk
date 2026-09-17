@@ -4,12 +4,19 @@ import { createApp } from './app';
 // import * as Sentry from '@sentry/cloudflare';
 // import { sentryOptions } from './observability/sentry';
 import { DORateLimitStore as BaseDORateLimitStore } from './services/rate-limit/DORateLimitStore';
-import { getPreviewDomain, getProtocolForHost, isSeparatePreviewDomain } from './utils/urls';
+import {
+	getPreviewDomain,
+	getProtocolForHost,
+	isSeparatePreviewDomain,
+} from './utils/urls';
 import { proxyToAiGateway } from './services/aigateway-proxy/controller';
 import { isOriginAllowed } from './config/security';
 import { isDev } from './utils/envs';
 import { proxyToSandbox } from './services/sandbox/request-handler';
-import { handleGitProtocolRequest, isGitProtocolRequest } from './api/handlers/git-protocol';
+import {
+	handleGitProtocolRequest,
+	isGitProtocolRequest,
+} from './api/handlers/git-protocol';
 import {
 	handleSpacePreview,
 	matchSpacePreviewParams,
@@ -43,13 +50,17 @@ export const DORateLimitStore = BaseDORateLimitStore;
 // Logger for the main application and handlers
 const logger = createLogger('App');
 
-function setOriginControl(env: Env, request: Request, currentHeaders: Headers): Headers {
-    const origin = request.headers.get('Origin');
-    
-    if (origin && isOriginAllowed(env, origin)) {
-        currentHeaders.set('Access-Control-Allow-Origin', origin);
-    }
-    return currentHeaders;
+function setOriginControl(
+	env: Env,
+	request: Request,
+	currentHeaders: Headers,
+): Headers {
+	const origin = request.headers.get('Origin');
+
+	if (origin && isOriginAllowed(env, origin)) {
+		currentHeaders.set('Access-Control-Allow-Origin', origin);
+	}
+	return currentHeaders;
 }
 
 /**
@@ -62,27 +73,31 @@ function setOriginControl(env: Env, request: Request, currentHeaders: Headers): 
  * WebSocket upgrade responses are returned untouched since their bodies
  * cannot be reconstructed.
  */
-function withPreviewCorsHeaders(env: Env, request: Request, response: Response): Response {
-    if (response.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-        return response;
-    }
+function withPreviewCorsHeaders(
+	env: Env,
+	request: Request,
+	response: Response,
+): Response {
+	if (response.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+		return response;
+	}
 
-    const origin = request.headers.get('Origin');
-    const allowedOrigins = [env.CUSTOM_DOMAIN, getPreviewDomain(env)]
-        .filter((host): host is string => !!host && host.trim() !== '')
-        .map((host) => `${getProtocolForHost(host)}://${host}`);
+	const origin = request.headers.get('Origin');
+	const allowedOrigins = [env.CUSTOM_DOMAIN, getPreviewDomain(env)]
+		.filter((host): host is string => !!host && host.trim() !== '')
+		.map((host) => `${getProtocolForHost(host)}://${host}`);
 
-    const headers = new Headers(response.headers);
-    if (origin && (isDev(env) || allowedOrigins.includes(origin))) {
-        headers.set('Access-Control-Allow-Origin', origin);
-        headers.set('Access-Control-Allow-Credentials', 'true');
-        headers.append('Vary', 'Origin');
-    }
-    return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-    });
+	const headers = new Headers(response.headers);
+	if (origin && (isDev(env) || allowedOrigins.includes(origin))) {
+		headers.set('Access-Control-Allow-Origin', origin);
+		headers.set('Access-Control-Allow-Credentials', 'true');
+		headers.append('Vary', 'Origin');
+	}
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
 }
 
 /**
@@ -95,7 +110,10 @@ function withPreviewCorsHeaders(env: Env, request: Request, response: Response):
  * @param env The environment bindings.
  * @returns A Response object from the sandbox, the dispatched worker, or an error.
  */
-async function handleUserAppRequest(request: Request, env: Env): Promise<Response> {
+async function handleUserAppRequest(
+	request: Request,
+	env: Env,
+): Promise<Response> {
 	const url = new URL(request.url);
 	const { hostname } = url;
 	logger.info(`Handling user app request for: ${hostname}`);
@@ -110,7 +128,9 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 
 		if (lastHyphenIndex !== -1) {
 			const agentId = withoutPrefix.substring(0, lastHyphenIndex);
-			logger.info(`Agent browser file serving request for agent: ${agentId}`);
+			logger.info(
+				`Agent browser file serving request for agent: ${agentId}`,
+			);
 
 			try {
 				const agentStub = await getAgentStub(env, agentId);
@@ -127,24 +147,29 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 	const sandboxResponse = await proxyToSandbox(request, env);
 	if (sandboxResponse) {
 		logger.info(`Serving response from sandbox for: ${hostname}`);
-        // If it was a websocket upgrade, we need to return the response as is
-        if (sandboxResponse.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-            logger.info(`Serving websocket response from sandbox for: ${hostname}`);
-            return sandboxResponse;
-        }
-		
+		// If it was a websocket upgrade, we need to return the response as is
+		if (
+			sandboxResponse.headers.get('Upgrade')?.toLowerCase() ===
+			'websocket'
+		) {
+			logger.info(
+				`Serving websocket response from sandbox for: ${hostname}`,
+			);
+			return sandboxResponse;
+		}
+
 		// Add headers to identify this as a sandbox response
 		let headers = new Headers(sandboxResponse.headers);
-		
-        if (sandboxResponse.status === 500) {
-            headers.set('X-Preview-Type', 'sandbox-error');
-        } else {
-            headers.set('X-Preview-Type', 'sandbox');
-        }
-        headers = setOriginControl(env, request, headers);
-        headers.append('Vary', 'Origin');
+
+		if (sandboxResponse.status === 500) {
+			headers.set('X-Preview-Type', 'sandbox-error');
+		} else {
+			headers.set('X-Preview-Type', 'sandbox');
+		}
+		headers = setOriginControl(env, request, headers);
+		headers.append('Vary', 'Origin');
 		headers.set('Access-Control-Expose-Headers', 'X-Preview-Type');
-		
+
 		return new Response(sandboxResponse.body, {
 			status: sandboxResponse.status,
 			statusText: sandboxResponse.statusText,
@@ -153,10 +178,14 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 	}
 
 	// 2. If sandbox misses, attempt to dispatch to a deployed worker.
-	logger.info(`Sandbox miss for ${hostname}, attempting dispatch to permanent worker.`);
+	logger.info(
+		`Sandbox miss for ${hostname}, attempting dispatch to permanent worker.`,
+	);
 	if (!isDispatcherAvailable(env)) {
 		logger.warn(`Dispatcher not available, cannot serve: ${hostname}`);
-		return new Response('This application is not currently available.', { status: 404 });
+		return new Response('This application is not currently available.', {
+			status: 404,
+		});
 	}
 
 	// Extract the app name (e.g., "xyz" from "xyz.build.cloudflare.dev").
@@ -171,8 +200,12 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 	const ownership = await appService.getAppOwnershipByDeploymentId(appName);
 	if (!ownership) {
 		// Fail closed: no owning app row for this deployment id.
-		logger.warn(`No app found for deployment '${appName}', refusing dispatch.`);
-		return new Response('This application is not currently available.', { status: 404 });
+		logger.warn(
+			`No app found for deployment '${appName}', refusing dispatch.`,
+		);
+		return new Response('This application is not currently available.', {
+			status: 404,
+		});
 	}
 
 	let ownerAuthedViaQuery = false;
@@ -194,7 +227,10 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 
 		if (!ownerId || ownerId !== ownership.userId) {
 			// Indistinguishable from a non-existent app (do not confirm existence).
-			return new Response('This application is not currently available.', { status: 404 });
+			return new Response(
+				'This application is not currently available.',
+				{ status: 404 },
+			);
 		}
 	}
 	// public apps, anonymous apps (userId === null), and verified owners fall through.
@@ -209,8 +245,8 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 		let headers = new Headers(dispatcherResponse.headers);
 
 		headers.set('X-Preview-Type', 'dispatcher');
-        headers = setOriginControl(env, request, headers);
-        headers.append('Vary', 'Origin');
+		headers = setOriginControl(env, request, headers);
+		headers.append('Vary', 'Origin');
 		headers.set('Access-Control-Expose-Headers', 'X-Preview-Type');
 
 		// Bootstrap the subdomain-scoped owner cookie so subsequent requests
@@ -218,7 +254,10 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 		if (ownerAuthedViaQuery) {
 			headers.append(
 				'Set-Cookie',
-				buildOwnerPreviewCookie({ token: readOwnerPreviewTokenFromQuery(url)!, secure: url.protocol === 'https:' }),
+				buildOwnerPreviewCookie({
+					token: readOwnerPreviewTokenFromQuery(url)!,
+					secure: url.protocol === 'https:',
+				}),
 			);
 		}
 
@@ -229,9 +268,14 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
 		});
 	} catch (error: any) {
 		// This block catches errors if the binding doesn't exist or if worker.fetch() fails.
-		logger.warn(`Error dispatching to worker '${appName}': ${error.message}`);
+		logger.warn(
+			`Error dispatching to worker '${appName}': ${error.message}`,
+		);
 
-		return new Response('An error occurred while loading this application.', { status: 500 });
+		return new Response(
+			'An error occurred while loading this application.',
+			{ status: 500 },
+		);
 	}
 }
 
@@ -239,16 +283,25 @@ async function handleUserAppRequest(request: Request, env: Env): Promise<Respons
  * Main Worker fetch handler with robust, secure routing.
  */
 const worker = {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-        // logger.info(`Received request: ${request.method} ${request.url}`);
+	async fetch(
+		request: Request,
+		env: Env,
+		ctx: ExecutionContext,
+	): Promise<Response> {
+		// logger.info(`Received request: ${request.method} ${request.url}`);
 		// --- Pre-flight Checks ---
 
 		// 1. Critical configuration check: Ensure custom domain is set.
-        const previewDomain = getPreviewDomain(env);
+		const previewDomain = getPreviewDomain(env);
 		const separatePreviewDomain = isSeparatePreviewDomain(env);
 		if (!previewDomain || previewDomain.trim() === '') {
-			logger.error('FATAL: env.CUSTOM_DOMAIN is not configured in wrangler.toml or the Cloudflare dashboard.');
-			return new Response('Server configuration error: Application domain is not set.', { status: 500 });
+			logger.error(
+				'FATAL: env.CUSTOM_DOMAIN is not configured in wrangler.toml or the Cloudflare dashboard.',
+			);
+			return new Response(
+				'Server configuration error: Application domain is not set.',
+				{ status: 500 },
+			);
 		}
 
 		const url = new URL(request.url);
@@ -257,7 +310,10 @@ const worker = {
 		// 2. Security: Immediately reject any requests made via an IP address.
 		const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 		if (ipRegex.test(hostname)) {
-			return new Response('Access denied. Please use the assigned domain name.', { status: 403 });
+			return new Response(
+				'Access denied. Please use the assigned domain name.',
+				{ status: 403 },
+			);
 		}
 
 		// --- Domain-based Routing ---
@@ -274,7 +330,12 @@ const worker = {
 			if (!params) {
 				return new Response('Not Found', { status: 404 });
 			}
-			const response = await handleSpacePreview(request, env, params.spaceName, params.branch);
+			const response = await handleSpacePreview(
+				request,
+				env,
+				params.spaceName,
+				params.branch,
+			);
 			return withPreviewCorsHeaders(env, request, response);
 		}
 
@@ -285,7 +346,12 @@ const worker = {
 				if (separatePreviewDomain) {
 					return new Response('Not Found', { status: 404 });
 				}
-				const response = await handleSpacePreview(request, env, params.spaceName, params.branch);
+				const response = await handleSpacePreview(
+					request,
+					env,
+					params.spaceName,
+					params.branch,
+				);
 				return withPreviewCorsHeaders(env, request, response);
 			}
 
@@ -294,36 +360,48 @@ const worker = {
 			if (isGitProtocolRequest(pathname)) {
 				return handleGitProtocolRequest(request, env, ctx);
 			}
-			
-			// Cloudflare OAuth connect routes: handle via Hono app even though they are not under /api
-			if (pathname.startsWith('/oauth/') || pathname === '/auth/callback') {
-				// Do not log the full URL: /auth/callback carries sensitive
-				// query params (code, state) that must not end up in logs.
-				logger.info(`Handling Cloudflare OAuth request for: ${pathname}`);
+
+			// Cloudflare OAuth connect routes and Access callback: handle via Hono
+			// app even though they are not under /api.
+			if (
+				pathname.startsWith('/oauth/') ||
+				pathname === '/auth/callback' ||
+				pathname === '/auth/access/callback'
+			) {
+				// Do not log the full URL: /auth/callback and /auth/access/callback
+				// carry sensitive query params (code, state, CF_Authorization) that
+				// must not end up in logs.
+				logger.info(`Handling auth callback request for: ${pathname}`);
 				const app = createApp(env);
 				return app.fetch(request, env, ctx);
 			}
-			
+
 			// Serve static assets for all other non-API routes from the ASSETS binding.
 			if (!pathname.startsWith('/api/')) {
 				return env.ASSETS.fetch(request);
 			}
 			// AI Gateway proxy for generated apps
 			if (pathname.startsWith('/api/proxy/openai')) {
-                // Browser-originated requests must come from a preview-domain
-                // subdomain or an explicitly allowed origin. Server-side calls
-                // from generated apps carry no Origin header and are allowed
-                // through (auth is enforced by the app-proxy JWT downstream).
-                const origin = request.headers.get('Origin');
-                if (origin) {
-                    const previewDomain = getPreviewDomain(env);
-                    const originAllowed = isOriginAllowed(env, origin) || origin.endsWith(`.${previewDomain}`);
-                    if (!originAllowed) {
-                        logger.warn(`Access denied. Invalid origin: ${origin}, preview domain: ${previewDomain}`);
-                        return new Response('Access denied. Invalid origin.', { status: 403 });
-                    }
-                }
-                return proxyToAiGateway(request, env, ctx);
+				// Browser-originated requests must come from a preview-domain
+				// subdomain or an explicitly allowed origin. Server-side calls
+				// from generated apps carry no Origin header and are allowed
+				// through (auth is enforced by the app-proxy JWT downstream).
+				const origin = request.headers.get('Origin');
+				if (origin) {
+					const previewDomain = getPreviewDomain(env);
+					const originAllowed =
+						isOriginAllowed(env, origin) ||
+						origin.endsWith(`.${previewDomain}`);
+					if (!originAllowed) {
+						logger.warn(
+							`Access denied. Invalid origin: ${origin}, preview domain: ${previewDomain}`,
+						);
+						return new Response('Access denied. Invalid origin.', {
+							status: 403,
+						});
+					}
+				}
+				return proxyToAiGateway(request, env, ctx);
 			}
 
 			// Handle all API requests with the main Hono application.
