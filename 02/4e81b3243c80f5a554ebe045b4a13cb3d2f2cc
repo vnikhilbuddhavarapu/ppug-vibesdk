@@ -1,0 +1,19 @@
+src/components/ui/model-selector.tsx
+  s_0ab1261da85652::t_11b88164317296 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "024e81b3243c80f5a554ebe045b4a13cb3d2f2cc",
+  "prompts": {},
+  "sessions": {
+    "s_0ab1261da85652": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "b5712f4e-c5be-4068-b07d-e5f640b7c89e",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
