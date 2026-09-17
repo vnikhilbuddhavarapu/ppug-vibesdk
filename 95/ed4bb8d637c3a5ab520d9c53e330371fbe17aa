@@ -1,0 +1,21 @@
+bun.lock
+  s_6c7b7f53dc5631::t_6d1d4e3f8dfa6b 117
+worker-configuration.d.ts
+  s_6c7b7f53dc5631::t_1af371799167aa 2,20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "95ed4bb8d637c3a5ab520d9c53e330371fbe17aa",
+  "prompts": {},
+  "sessions": {
+    "s_6c7b7f53dc5631": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "8d56a12f-aafc-43de-a087-9249b263e87a",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
