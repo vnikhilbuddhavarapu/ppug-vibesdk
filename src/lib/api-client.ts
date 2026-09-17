@@ -23,6 +23,7 @@ import type {
 	UserAnalyticsResponseData,
 	AgentAnalyticsResponseData,
 	ModelConfigsData,
+	ModelConfigsInfoData,
 	ModelConfigData,
 	ModelConfigUpdateData,
 	ModelConfigTestData,
@@ -802,6 +803,14 @@ class ApiClient {
 	 */
 	async getModelConfigs(): Promise<ApiResponse<ModelConfigsData>> {
 		return this.request<ModelConfigsData>('/api/model-configs');
+	}
+
+	/**
+	 * Get model configurations with agent display metadata (name/description/
+	 * constraint), for the Settings model-config picker.
+	 */
+	async getModelConfigsInfo(): Promise<ApiResponse<ModelConfigsInfoData>> {
+		return this.request<ModelConfigsInfoData>('/api/model-configs/info');
 	}
 
 	/**

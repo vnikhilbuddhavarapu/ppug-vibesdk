@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	Smartphone,
 	Trash2,
@@ -16,7 +12,14 @@ import {
 	Eye,
 	EyeOff,
 } from 'lucide-react';
-import type { ActiveSessionsData, ApiKeysData } from '@/api-types';
+import type {
+	ActiveSessionsData,
+	ApiKeysData,
+	ModelConfigsInfoData,
+	ModelConfigUpdate,
+	UserModelConfigWithMetadata,
+} from '@/api-types';
+import { ModelConfigTabs } from '@/components/model-config-tabs';
 import {
 	Button,
 	DeleteResource,
@@ -97,12 +100,19 @@ export default function SettingsPage() {
 		} else {
 			const reason = searchParams.get('reason');
 			const messages: Record<string, string> = {
-				connect_endpoint_changed: 'Please try connecting Cloudflare again.',
-				session_mismatch: 'Your session changed during connection. Please try again.',
-				missing_verifier: 'Cloudflare connection expired. Please try again.',
-				invalid_state: 'Cloudflare connection could not be verified. Please try again.',
+				connect_endpoint_changed:
+					'Please try connecting Cloudflare again.',
+				session_mismatch:
+					'Your session changed during connection. Please try again.',
+				missing_verifier:
+					'Cloudflare connection expired. Please try again.',
+				invalid_state:
+					'Cloudflare connection could not be verified. Please try again.',
 			};
-			toast.error(messages[reason ?? ''] ?? 'Failed to connect Cloudflare. Please try again.');
+			toast.error(
+				messages[reason ?? ''] ??
+					'Failed to connect Cloudflare. Please try again.',
+			);
 		}
 
 		const next = new URLSearchParams(searchParams);
@@ -137,6 +147,133 @@ export default function SettingsPage() {
 	const apiKeysError = apiKeysQuery.error;
 	const activeSessions = activeSessionsQuery.data?.sessions ?? [];
 	const apiKeys = apiKeysQuery.data?.keys ?? [];
+
+	const modelConfigsQuery = useQuery({
+		queryKey: queryKeys.account.settings.modelConfigs(user?.id),
+		queryFn: async (): Promise<ModelConfigsInfoData> => {
+			const response = await apiClient.getModelConfigsInfo();
+			if (!response.success || !response.data) {
+				throw new Error(
+					response.error?.message ||
+						'Failed to load model configurations',
+				);
+			}
+			return response.data;
+		},
+		enabled: !!user,
+	});
+	const [testingModelConfig, setTestingModelConfig] = useState<string | null>(
+		null,
+	);
+	const modelConfigsWithMetadata: Record<
+		string,
+		UserModelConfigWithMetadata
+	> = Object.fromEntries(
+		Object.entries(modelConfigsQuery.data?.userConfigs ?? {}).map(
+			([key, config]) => [key, { ...config, isUserOverride: true }],
+		),
+	);
+
+	const saveModelConfigMutation = useMutation({
+		mutationFn: async ({
+			agentAction,
+			config,
+		}: {
+			agentAction: string;
+			config: ModelConfigUpdate;
+		}) => {
+			const response = await apiClient.updateModelConfig(
+				agentAction,
+				config,
+			);
+			if (!response.success) {
+				throw new Error(
+					response.error?.message ||
+						'Failed to save model configuration',
+				);
+			}
+		},
+		onSuccess: () => {
+			toast.success('Model configuration saved');
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.account.settings.modelConfigsAll(),
+			});
+		},
+		onError: (error: Error) => {
+			toast.error(error.message);
+		},
+	});
+
+	const resetModelConfigMutation = useMutation({
+		mutationFn: async (agentAction: string) => {
+			const response = await apiClient.deleteModelConfig(agentAction);
+			if (!response.success) {
+				throw new Error(
+					response.error?.message ||
+						'Failed to reset model configuration',
+				);
+			}
+		},
+		onSuccess: () => {
+			toast.success('Model configuration reset to default');
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.account.settings.modelConfigsAll(),
+			});
+		},
+		onError: (error: Error) => {
+			toast.error(error.message);
+		},
+	});
+
+	const resetAllModelConfigsMutation = useMutation({
+		mutationFn: async () => {
+			const response = await apiClient.resetAllModelConfigs();
+			if (!response.success) {
+				throw new Error(
+					response.error?.message ||
+						'Failed to reset model configurations',
+				);
+			}
+		},
+		onSuccess: () => {
+			toast.success('All model configurations reset to defaults');
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.account.settings.modelConfigsAll(),
+			});
+		},
+		onError: (error: Error) => {
+			toast.error(error.message);
+		},
+	});
+
+	const handleTestModelConfig = async (
+		agentAction: string,
+		tempConfig?: ModelConfigUpdate,
+	) => {
+		setTestingModelConfig(agentAction);
+		try {
+			const response = await apiClient.testModelConfig(
+				agentAction,
+				tempConfig,
+			);
+			if (!response.success || !response.data) {
+				throw new Error(response.error?.message || 'Model test failed');
+			}
+			if (response.data.testResult.success) {
+				toast.success('Model configuration test passed');
+			} else {
+				toast.error(
+					response.data.testResult.error || 'Model test failed',
+				);
+			}
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Model test failed',
+			);
+		} finally {
+			setTestingModelConfig(null);
+		}
+	};
 
 	const handleDeleteAccount = async () => {
 		toast.error('Account deletion is not yet implemented');
@@ -508,11 +645,21 @@ export default function SettingsPage() {
 											<Table>
 												<Table.Header>
 													<Table.Row>
-														<Table.Head>Name</Table.Head>
-														<Table.Head>Preview</Table.Head>
-														<Table.Head>Created</Table.Head>
-														<Table.Head>Last used</Table.Head>
-														<Table.Head>Status</Table.Head>
+														<Table.Head>
+															Name
+														</Table.Head>
+														<Table.Head>
+															Preview
+														</Table.Head>
+														<Table.Head>
+															Created
+														</Table.Head>
+														<Table.Head>
+															Last used
+														</Table.Head>
+														<Table.Head>
+															Status
+														</Table.Head>
 														<Table.Head className="text-right">
 															Actions
 														</Table.Head>
@@ -562,14 +709,14 @@ export default function SettingsPage() {
 																	disabled={
 																		!k.isActive
 																	}
-																onClick={() => {
-																	setRevokeError(
-																		undefined,
-																	);
-																	setKeyToRevoke(
-																		k,
-																	);
-																}}
+																	onClick={() => {
+																		setRevokeError(
+																			undefined,
+																		);
+																		setKeyToRevoke(
+																			k,
+																		);
+																	}}
 																	className="gap-2"
 																>
 																	<Trash2 className="size-4" />
@@ -582,24 +729,26 @@ export default function SettingsPage() {
 											</Table>
 										</LayerCard>
 
-									{keyToRevoke && (
-										<DeleteResource
-											open={!!keyToRevoke}
-											onOpenChange={(open) => {
-												if (!open) {
-													setKeyToRevoke(null);
-													setRevokeError(undefined);
-												}
-											}}
-											resourceType="API key"
-											resourceName={keyToRevoke.name}
-											onDelete={handleRevokeApiKey}
-											isDeleting={revokingKey}
-											errorMessage={revokeError}
-											deleteButtonText="Revoke API key"
-											className="sm:w-[32rem]"
-										/>
-									)}
+										{keyToRevoke && (
+											<DeleteResource
+												open={!!keyToRevoke}
+												onOpenChange={(open) => {
+													if (!open) {
+														setKeyToRevoke(null);
+														setRevokeError(
+															undefined,
+														);
+													}
+												}}
+												resourceType="API key"
+												resourceName={keyToRevoke.name}
+												onDelete={handleRevokeApiKey}
+												isDeleting={revokingKey}
+												errorMessage={revokeError}
+												deleteButtonText="Revoke API key"
+												className="sm:w-[32rem]"
+											/>
+										)}
 									</>
 								)}
 							</div>
@@ -634,56 +783,95 @@ export default function SettingsPage() {
 											</span>
 										</div>
 									) : (
-										activeSessions.map(
-											(session) => (
-												<div
-													key={session.id}
-													className="flex items-center justify-between gap-4"
-												>
-													<div className="flex items-start gap-2">
-														<span className="h-lh flex items-center">
-															<Smartphone className="size-4 text-kumo-subtle" />
-														</span>
-														<div className="grid gap-1.5">
-															<p className="text-sm font-medium text-kumo-default">
-																{session.isCurrent
-																	? 'Current session'
-																	: 'Other session'}
-															</p>
-															<p className="text-sm text-kumo-subtle">
-																{
-																	session.ipAddress
-																}{' '}
-																•{' '}
-																{new Date(
-																	session.lastActivity,
-																).toLocaleDateString()}
-															</p>
-														</div>
-													</div>
-													<div className="flex items-center gap-2">
-														{session.isCurrent ? (
-															<div className="bg-green-400 size-3 rounded-full ring-2 ring-green-200 animate-pulse" />
-														) : (
-															<Button
-																variant="secondary"
-																size="sm"
-																onClick={() =>
-																	handleRevokeSession(
-																		session.id,
-																	)
-																}
-															>
-																Revoke
-															</Button>
-														)}
+										activeSessions.map((session) => (
+											<div
+												key={session.id}
+												className="flex items-center justify-between gap-4"
+											>
+												<div className="flex items-start gap-2">
+													<span className="h-lh flex items-center">
+														<Smartphone className="size-4 text-kumo-subtle" />
+													</span>
+													<div className="grid gap-1.5">
+														<p className="text-sm font-medium text-kumo-default">
+															{session.isCurrent
+																? 'Current session'
+																: 'Other session'}
+														</p>
+														<p className="text-sm text-kumo-subtle">
+															{session.ipAddress}{' '}
+															•{' '}
+															{new Date(
+																session.lastActivity,
+															).toLocaleDateString()}
+														</p>
 													</div>
 												</div>
-											),
-										)
+												<div className="flex items-center gap-2">
+													{session.isCurrent ? (
+														<div className="bg-green-400 size-3 rounded-full ring-2 ring-green-200 animate-pulse" />
+													) : (
+														<Button
+															variant="secondary"
+															size="sm"
+															onClick={() =>
+																handleRevokeSession(
+																	session.id,
+																)
+															}
+														>
+															Revoke
+														</Button>
+													)}
+												</div>
+											</div>
+										))
 									)}
 								</div>
 							</div>
+						</LayerCard.Primary>
+					</LayerCard>
+
+					{/* AI Models Section */}
+					<LayerCard id="ai-models">
+						<LayerCard.Secondary className="font-funky-mono tracking-tighter">
+							<div className="flex items-center gap-2">
+								<span className="h-lh flex items-center">
+									<Settings className="size-4" />
+								</span>
+								<span>AI Models</span>
+							</div>
+						</LayerCard.Secondary>
+						<LayerCard.Primary>
+							<ModelConfigTabs
+								agentConfigs={
+									modelConfigsQuery.data?.agents ?? []
+								}
+								modelConfigs={modelConfigsWithMetadata}
+								defaultConfigs={
+									modelConfigsQuery.data?.defaultConfigs ?? {}
+								}
+								loadingConfigs={modelConfigsQuery.isLoading}
+								onSaveConfig={(agentAction, config) =>
+									saveModelConfigMutation.mutateAsync({
+										agentAction,
+										config,
+									})
+								}
+								onTestConfig={handleTestModelConfig}
+								onResetConfig={(agentAction) =>
+									resetModelConfigMutation.mutateAsync(
+										agentAction,
+									)
+								}
+								onResetAllConfigs={() =>
+									resetAllModelConfigsMutation.mutateAsync()
+								}
+								testingConfig={testingModelConfig}
+								savingConfigs={
+									resetAllModelConfigsMutation.isPending
+								}
+							/>
 						</LayerCard.Primary>
 					</LayerCard>
 
@@ -691,7 +879,10 @@ export default function SettingsPage() {
 						<LayerCard.Secondary className="font-funky-mono tracking-tighter">
 							<div className="flex items-center gap-2 text-kumo-danger">
 								<span className="h-lh flex items-center">
-									<BiohazardIcon weight="duotone" className="size-4" />
+									<BiohazardIcon
+										weight="duotone"
+										className="size-4"
+									/>
 								</span>
 								Danger zone
 							</div>

@@ -93,6 +93,8 @@ export type {
 	ByokProvidersData,
 	UserProviderStatus,
 	ModelsByProvider,
+	ModelConfigsInfoData,
+	AgentDisplayConfigData,
 } from 'worker/api/controllers/modelConfig/types';
 
 // Model Provider API Types

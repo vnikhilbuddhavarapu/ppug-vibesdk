@@ -1,5 +1,11 @@
 import { Think } from '@cloudflare/think';
-import type { PrepareStepContext, StepConfig, Session, TurnContext, TurnConfig } from '@cloudflare/think';
+import type {
+	PrepareStepContext,
+	StepConfig,
+	Session,
+	TurnContext,
+	TurnConfig,
+} from '@cloudflare/think';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel, ToolSet } from 'ai';
 import {
@@ -12,7 +18,10 @@ import {
 	createDeleteTool,
 } from '@cloudflare/think/tools/workspace';
 import type { SkillSource } from 'agents/skills';
-import { createSpaceWorkspaceOps, type SpaceWorkspaceStub } from './space-workspace-ops';
+import {
+	createSpaceWorkspaceOps,
+	type SpaceWorkspaceStub,
+} from './space-workspace-ops';
 import { selectSystemPrompt, PROMPT_MAX_STEPS } from './prompts';
 import { createThinkSkillSource } from './skills';
 import { createAskQuestionsTool } from './ask-questions-tool';
@@ -25,7 +34,6 @@ import { getUserConfigurableSettings } from '../../config';
 import { RateLimitService } from '../../services/rate-limit/rateLimits';
 import { hasCloudflareConfigured } from '../../services/rate-limit/usageChecker';
 import type { RateLimitSettings } from '../../services/rate-limit/config';
-import { THINK_MODEL_CONFIG } from './model-config';
 
 /**
  * Per-instance configuration pushed into a {@link ThinkAgent} by the host
@@ -56,6 +64,8 @@ export interface ThinkAgentConfig {
 		 * rejects it. `getModel()` strips `Authorization` when this is set.
 		 */
 		useStoredKeys?: boolean;
+		/** Credit cost of the currently-configured model, for rate-limit enforcement. */
+		creditCost?: number;
 	};
 	/** Builder system prompt (assembled host-side; falls back to a default). */
 	systemPrompt?: string;
@@ -73,8 +83,9 @@ const DEFAULT_SYSTEM_PROMPT =
 
 /** Extracts the Gemini thought signature from a `tool_calls[]` entry, if any. */
 function getThoughtSignature(call: unknown): string | undefined {
-	const sig = (call as { extra_content?: { google?: { thought_signature?: unknown } } })
-		?.extra_content?.google?.thought_signature;
+	const sig = (
+		call as { extra_content?: { google?: { thought_signature?: unknown } } }
+	)?.extra_content?.google?.thought_signature;
 	return typeof sig === 'string' ? sig : undefined;
 }
 
@@ -99,7 +110,11 @@ function patchToolCallChunk(
 		const toolCalls = delta?.tool_calls;
 		if (!Array.isArray(toolCalls)) continue;
 		toolCalls.forEach((call, i) => {
-			if (call && typeof call === 'object' && (call as { index?: unknown }).index == null) {
+			if (
+				call &&
+				typeof call === 'object' &&
+				(call as { index?: unknown }).index == null
+			) {
 				(call as { index: number }).index = i;
 			}
 			const id = (call as { id?: unknown })?.id;
@@ -141,11 +156,14 @@ function fixToolCallStream(
 				const lines = buffer.split('\n');
 				buffer = lines.pop() ?? '';
 				for (const line of lines) {
-					controller.enqueue(encoder.encode(`${transformLine(line)}\n`));
+					controller.enqueue(
+						encoder.encode(`${transformLine(line)}\n`),
+					);
 				}
 			},
 			flush(controller) {
-				if (buffer) controller.enqueue(encoder.encode(transformLine(buffer)));
+				if (buffer)
+					controller.enqueue(encoder.encode(transformLine(buffer)));
 			},
 		}),
 	);
@@ -169,7 +187,10 @@ export class ThinkAgent extends Think<Env> {
 	 * the `extra_content` Google requires for multi-step function calling).
 	 */
 	private readonly thoughtSignatures = new Map<string, string>();
-	private turnUsage: { config: RateLimitSettings; hasCloudflareConfigured: boolean } | null = null;
+	private turnUsage: {
+		config: RateLimitSettings;
+		hasCloudflareConfigured: boolean;
+	} | null = null;
 
 	/**
 	 * Re-attach harvested Gemini `thought_signature`s to the `tool_calls` in an
@@ -196,10 +217,15 @@ export class ThinkAgent extends Think<Env> {
 				if (getThoughtSignature(call)) continue;
 				const sig = this.thoughtSignatures.get(id);
 				if (!sig) continue;
-				const c = call as { extra_content?: { google?: Record<string, unknown> } };
+				const c = call as {
+					extra_content?: { google?: Record<string, unknown> };
+				};
 				c.extra_content = {
 					...(c.extra_content ?? {}),
-					google: { ...(c.extra_content?.google ?? {}), thought_signature: sig },
+					google: {
+						...(c.extra_content?.google ?? {}),
+						thought_signature: sig,
+					},
 				};
 				changed = true;
 			}
@@ -210,7 +236,9 @@ export class ThinkAgent extends Think<Env> {
 	private requireConfig(): ThinkAgentConfig {
 		const cfg = this.getConfig<ThinkAgentConfig>();
 		if (!cfg) {
-			throw new Error('ThinkAgent has not been configured yet (call configureVibe first)');
+			throw new Error(
+				'ThinkAgent has not been configured yet (call configureVibe first)',
+			);
 		}
 		return cfg;
 	}
@@ -218,8 +246,11 @@ export class ThinkAgent extends Think<Env> {
 	private getSpaceStub(): SpaceWorkspaceStub {
 		// One space per session: the SpaceDO is always keyed by this session's
 		// (agent) id, so a session can never resolve to a different space.
-		const ns = (this.env as unknown as { SPACE_DO: DurableObjectNamespace }).SPACE_DO;
-		return ns.get(ns.idFromName(this.name)) as unknown as SpaceWorkspaceStub;
+		const ns = (this.env as unknown as { SPACE_DO: DurableObjectNamespace })
+			.SPACE_DO;
+		return ns.get(
+			ns.idFromName(this.name),
+		) as unknown as SpaceWorkspaceStub;
 	}
 
 	override getModel(): LanguageModel {
@@ -236,16 +267,27 @@ export class ThinkAgent extends Think<Env> {
 			const headers = new Headers(init?.headers);
 			if (model.useStoredKeys) headers.delete('authorization');
 			let body = init?.body;
-			if (typeof body === 'string') body = this.injectThoughtSignatures(body);
-			const res = await fetch(input as RequestInfo, { ...(init ?? {}), headers, body });
+			if (typeof body === 'string')
+				body = this.injectThoughtSignatures(body);
+			const res = await fetch(input as RequestInfo, {
+				...(init ?? {}),
+				headers,
+				body,
+			});
 			if (!res.body) return res;
 			const outHeaders = new Headers(res.headers);
 			// Body length/encoding change after transforming the stream.
 			outHeaders.delete('content-length');
 			outHeaders.delete('content-encoding');
 			return new Response(
-				fixToolCallStream(res.body, (id, sig) => this.thoughtSignatures.set(id, sig)),
-				{ status: res.status, statusText: res.statusText, headers: outHeaders },
+				fixToolCallStream(res.body, (id, sig) =>
+					this.thoughtSignatures.set(id, sig),
+				),
+				{
+					status: res.status,
+					statusText: res.statusText,
+					headers: outHeaders,
+				},
 			);
 		};
 		const provider = createOpenAI({
@@ -295,13 +337,22 @@ export class ThinkAgent extends Think<Env> {
 		this.turnUsage = null;
 		if (config) {
 			try {
-				const userConfig = await getUserConfigurableSettings(this.env, config.userId);
+				const userConfig = await getUserConfigurableSettings(
+					this.env,
+					config.userId,
+				);
 				this.turnUsage = {
 					config: userConfig.security.rateLimit,
-					hasCloudflareConfigured: await hasCloudflareConfigured(this.env, config.userId),
+					hasCloudflareConfigured: await hasCloudflareConfigured(
+						this.env,
+						config.userId,
+					),
 				};
 			} catch (error) {
-				console.warn('Failed to resolve Think credit metering configuration', error);
+				console.warn(
+					'Failed to resolve Think credit metering configuration',
+					error,
+				);
 			}
 		}
 		console.info('Think context selected', {
@@ -335,7 +386,9 @@ export class ThinkAgent extends Think<Env> {
 			// Save a restore point without deploying. The model decides when.
 			commit: createCommitTool({ getStub: () => this.getSpaceStub() }),
 			// Commit + deploy the SpaceDO branch so the preview rebuilds.
-			deploy_space: createDeploySpaceTool({ getStub: () => this.getSpaceStub() }),
+			deploy_space: createDeploySpaceTool({
+				getStub: () => this.getSpaceStub(),
+			}),
 			// Set the project's short display title (host observes the output).
 			set_title: createSetTitleTool(),
 			// Ask the user clarifying questions via a frontend popup.
@@ -359,7 +412,9 @@ export class ThinkAgent extends Think<Env> {
 	 * supported`), and the prompt is a control directive that reads naturally as
 	 * user input.
 	 */
-	override async beforeStep(ctx: PrepareStepContext): Promise<StepConfig | void> {
+	override async beforeStep(
+		ctx: PrepareStepContext,
+	): Promise<StepConfig | void> {
 		const config = this.getConfig<ThinkAgentConfig>();
 		if (this.turnUsage && config) {
 			await RateLimitService.enforceLLMCallsRateLimit(
@@ -370,14 +425,20 @@ export class ThinkAgent extends Think<Env> {
 				'',
 				false,
 				this.turnUsage.hasCloudflareConfigured,
-				{ creditCost: THINK_MODEL_CONFIG.creditCost, throwOnExceeded: false },
+				{
+					creditCost: config.model.creditCost ?? 1,
+					throwOnExceeded: false,
+				},
 			);
 		}
 		if (ctx.stepNumber >= this.maxSteps - 1) {
 			return {
 				activeTools: [],
 				toolChoice: 'none',
-				messages: [...ctx.messages, { role: 'user', content: PROMPT_MAX_STEPS }],
+				messages: [
+					...ctx.messages,
+					{ role: 'user', content: PROMPT_MAX_STEPS },
+				],
 			};
 		}
 	}

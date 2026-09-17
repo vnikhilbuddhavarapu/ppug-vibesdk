@@ -4,10 +4,21 @@
  */
 
 import { BaseService } from './BaseService';
-import { UserModelConfig, NewUserModelConfig, userModelConfigs } from '../schema';
+import {
+	UserModelConfig,
+	NewUserModelConfig,
+	userModelConfigs,
+} from '../schema';
 import { eq, and } from 'drizzle-orm';
-import { AgentActionKey, ModelConfig } from '../../agents/inferutils/config.types';
-import { AGENT_CONFIG, AGENT_CONSTRAINTS } from '../../agents/inferutils/config';
+import {
+	AgentActionKey,
+	ModelConfig,
+} from '../../agents/inferutils/config.types';
+import {
+	AGENT_CONFIG,
+	AGENT_CONSTRAINTS,
+} from '../../agents/inferutils/config';
+import { AGENT_ACTION_METADATA } from '../../agents/inferutils/agentActionMetadata';
 import type { ReasoningEffort } from '../../agents/inferutils/config.types';
 import { generateId } from '../../utils/idGenerator';
 import type { UserModelConfigWithMetadata } from '../types';
@@ -17,7 +28,9 @@ import { toAIModel } from '../../agents/inferutils/config.types';
 type ConstraintStrategy = 'throw' | 'fallback';
 
 export class ModelConfigService extends BaseService {
-	private castToReasoningEffort(value: string | null): ReasoningEffort | undefined {
+	private castToReasoningEffort(
+		value: string | null,
+	): ReasoningEffort | undefined {
 		if (!value) return undefined;
 		return value as ReasoningEffort;
 	}
@@ -26,14 +39,18 @@ export class ModelConfigService extends BaseService {
 		agentActionName: AgentActionKey,
 		modelName: string | undefined,
 		modelType: 'primary' | 'fallback',
-		strategy: ConstraintStrategy
+		strategy: ConstraintStrategy,
 	): boolean {
 		if (!modelName) return true;
 
-		const constraintCheck = validateAgentConstraints(agentActionName, modelName);
+		const constraintCheck = validateAgentConstraints(
+			agentActionName,
+			modelName,
+		);
 
 		if (constraintCheck.constraintEnabled && !constraintCheck.valid) {
-			const errorMsg = `${modelType === 'fallback' ? 'Fallback model' : 'Model'} '${modelName}' is not allowed for '${agentActionName}'. ` +
+			const errorMsg =
+				`${modelType === 'fallback' ? 'Fallback model' : 'Model'} '${modelName}' is not allowed for '${agentActionName}'. ` +
 				`Allowed models: ${constraintCheck.allowedModels?.join(', ')}`;
 
 			if (strategy === 'throw') {
@@ -53,14 +70,14 @@ export class ModelConfigService extends BaseService {
 	 */
 	private mergeWithDefaults(
 		userConfig: UserModelConfig | null,
-		agentActionName: AgentActionKey
+		agentActionName: AgentActionKey,
 	): UserModelConfigWithMetadata {
 		const defaultConfig = AGENT_CONFIG[agentActionName];
 
 		if (!userConfig) {
 			return {
 				...defaultConfig,
-				isUserOverride: false
+				isUserOverride: false,
 			};
 		}
 
@@ -69,11 +86,18 @@ export class ModelConfigService extends BaseService {
 		return {
 			name: toAIModel(userConfig.modelName) ?? defaultConfig.name,
 			max_tokens: userConfig.maxTokens ?? defaultConfig.max_tokens,
-			temperature: userConfig.temperature !== null ? userConfig.temperature : defaultConfig.temperature,
-			reasoning_effort: this.castToReasoningEffort(userConfig.reasoningEffort) ?? defaultConfig.reasoning_effort,
-			fallbackModel: toAIModel(userConfig.fallbackModel) ?? defaultConfig.fallbackModel,
+			temperature:
+				userConfig.temperature !== null
+					? userConfig.temperature
+					: defaultConfig.temperature,
+			reasoning_effort:
+				this.castToReasoningEffort(userConfig.reasoningEffort) ??
+				defaultConfig.reasoning_effort,
+			fallbackModel:
+				toAIModel(userConfig.fallbackModel) ??
+				defaultConfig.fallbackModel,
 			isUserOverride: true,
-			userConfigId: userConfig.id
+			userConfigId: userConfig.id,
 		};
 	}
 
@@ -83,7 +107,7 @@ export class ModelConfigService extends BaseService {
 	 */
 	private applyConstraintsWithFallback(
 		mergedConfig: UserModelConfigWithMetadata,
-		agentActionName: AgentActionKey
+		agentActionName: AgentActionKey,
 	): UserModelConfigWithMetadata {
 		const defaultConfig = AGENT_CONFIG[agentActionName];
 
@@ -93,18 +117,32 @@ export class ModelConfigService extends BaseService {
 		}
 
 		// Validate primary model - fall back to full default if invalid
-		if (!this.validateModel(agentActionName, mergedConfig.name, 'primary', 'fallback')) {
+		if (
+			!this.validateModel(
+				agentActionName,
+				mergedConfig.name,
+				'primary',
+				'fallback',
+			)
+		) {
 			return {
 				...defaultConfig,
-				isUserOverride: false
+				isUserOverride: false,
 			};
 		}
 
 		// Validate fallback model - use default fallback only if invalid
-		if (!this.validateModel(agentActionName, mergedConfig.fallbackModel, 'fallback', 'fallback')) {
+		if (
+			!this.validateModel(
+				agentActionName,
+				mergedConfig.fallbackModel,
+				'fallback',
+				'fallback',
+			)
+		) {
 			return {
 				...mergedConfig,
-				fallbackModel: defaultConfig.fallbackModel
+				fallbackModel: defaultConfig.fallbackModel,
 			};
 		}
 
@@ -114,22 +152,35 @@ export class ModelConfigService extends BaseService {
 	/**
 	 * Get all model configurations for a user (merged with defaults, constraint-enforced)
 	 */
-	async getUserModelConfigs(userId: string): Promise<Record<AgentActionKey, UserModelConfigWithMetadata>> {
+	async getUserModelConfigs(
+		userId: string,
+	): Promise<Record<AgentActionKey, UserModelConfigWithMetadata>> {
 		const userConfigs = await this.database
 			.select()
 			.from(userModelConfigs)
-			.where(and(
-				eq(userModelConfigs.userId, userId),
-				eq(userModelConfigs.isActive, true)
-			));
+			.where(
+				and(
+					eq(userModelConfigs.userId, userId),
+					eq(userModelConfigs.isActive, true),
+				),
+			);
 
 		const result: Record<string, UserModelConfigWithMetadata> = {};
 
 		// Process all agent actions
 		for (const actionKey of Object.keys(AGENT_CONFIG)) {
-			const userConfig = userConfigs.find((uc: UserModelConfig) => uc.agentActionName === actionKey) ?? null;
-			const mergedConfig = this.mergeWithDefaults(userConfig, actionKey as AgentActionKey);
-			result[actionKey] = this.applyConstraintsWithFallback(mergedConfig, actionKey as AgentActionKey);
+			const userConfig =
+				userConfigs.find(
+					(uc: UserModelConfig) => uc.agentActionName === actionKey,
+				) ?? null;
+			const mergedConfig = this.mergeWithDefaults(
+				userConfig,
+				actionKey as AgentActionKey,
+			);
+			result[actionKey] = this.applyConstraintsWithFallback(
+				mergedConfig,
+				actionKey as AgentActionKey,
+			);
 		}
 
 		return result as Record<AgentActionKey, UserModelConfigWithMetadata>;
@@ -138,18 +189,26 @@ export class ModelConfigService extends BaseService {
 	/**
 	 * Get a specific model configuration for a user (merged with defaults, constraint-enforced)
 	 */
-	async getUserModelConfig(userId: string, agentActionName: AgentActionKey): Promise<UserModelConfigWithMetadata> {
+	async getUserModelConfig(
+		userId: string,
+		agentActionName: AgentActionKey,
+	): Promise<UserModelConfigWithMetadata> {
 		const userConfig = await this.database
 			.select()
 			.from(userModelConfigs)
-			.where(and(
-				eq(userModelConfigs.userId, userId),
-				eq(userModelConfigs.agentActionName, agentActionName),
-				eq(userModelConfigs.isActive, true)
-			))
+			.where(
+				and(
+					eq(userModelConfigs.userId, userId),
+					eq(userModelConfigs.agentActionName, agentActionName),
+					eq(userModelConfigs.isActive, true),
+				),
+			)
 			.limit(1);
 
-		const mergedConfig = this.mergeWithDefaults(userConfig[0] ?? null, agentActionName);
+		const mergedConfig = this.mergeWithDefaults(
+			userConfig[0] ?? null,
+			agentActionName,
+		);
 		return this.applyConstraintsWithFallback(mergedConfig, agentActionName);
 	}
 
@@ -157,15 +216,20 @@ export class ModelConfigService extends BaseService {
 	 * Get raw user model configuration without merging with defaults.
 	 * Returns null if user has no custom config OR if config violates constraints.
 	 */
-	async getRawUserModelConfig(userId: string, agentActionName: AgentActionKey): Promise<ModelConfig | null> {
+	async getRawUserModelConfig(
+		userId: string,
+		agentActionName: AgentActionKey,
+	): Promise<ModelConfig | null> {
 		const userConfig = await this.database
 			.select()
 			.from(userModelConfigs)
-			.where(and(
-				eq(userModelConfigs.userId, userId),
-				eq(userModelConfigs.agentActionName, agentActionName),
-				eq(userModelConfigs.isActive, true)
-			))
+			.where(
+				and(
+					eq(userModelConfigs.userId, userId),
+					eq(userModelConfigs.agentActionName, agentActionName),
+					eq(userModelConfigs.isActive, true),
+				),
+			)
 			.limit(1);
 
 		if (userConfig.length === 0) {
@@ -175,8 +239,11 @@ export class ModelConfigService extends BaseService {
 		const config = userConfig[0];
 
 		// Check if user has actual overrides (any non-null value)
-		const hasOverrides = config.modelName || config.maxTokens ||
-			config.temperature !== null || config.reasoningEffort ||
+		const hasOverrides =
+			config.modelName ||
+			config.maxTokens ||
+			config.temperature !== null ||
+			config.reasoningEffort ||
 			config.fallbackModel;
 
 		if (!hasOverrides) {
@@ -187,13 +254,25 @@ export class ModelConfigService extends BaseService {
 		const mergedConfig = this.mergeWithDefaults(config, agentActionName);
 
 		// Validate primary model - return null if violated (triggers AGENT_CONFIG fallback)
-		if (!this.validateModel(agentActionName, mergedConfig.name, 'primary', 'fallback')) {
+		if (
+			!this.validateModel(
+				agentActionName,
+				mergedConfig.name,
+				'primary',
+				'fallback',
+			)
+		) {
 			return null;
 		}
 
 		// Validate fallback model - use default fallback if invalid
 		const defaultConfig = AGENT_CONFIG[agentActionName];
-		const validFallback = this.validateModel(agentActionName, mergedConfig.fallbackModel, 'fallback', 'fallback')
+		const validFallback = this.validateModel(
+			agentActionName,
+			mergedConfig.fallbackModel,
+			'fallback',
+			'fallback',
+		)
 			? mergedConfig.fallbackModel
 			: defaultConfig.fallbackModel;
 
@@ -202,60 +281,70 @@ export class ModelConfigService extends BaseService {
 			max_tokens: mergedConfig.max_tokens,
 			temperature: mergedConfig.temperature,
 			reasoning_effort: mergedConfig.reasoning_effort,
-			fallbackModel: validFallback
+			fallbackModel: validFallback,
 		};
 	}
 
-    /**
-     * Get current model configurations (defaults + user overrides)
-     * Used by WebSocket to provide configuration info to frontend
-     */
-    async getModelConfigsInfo(userId: string) {
-        if (!userId) {
-            throw new Error('No user session available for model configurations');
-        }
+	/**
+	 * Get current model configurations (defaults + user overrides)
+	 * Used by WebSocket to provide configuration info to frontend
+	 */
+	async getModelConfigsInfo(userId: string) {
+		if (!userId) {
+			throw new Error(
+				'No user session available for model configurations',
+			);
+		}
 
-        try {
-            // Get all user configs
-            const userConfigsRecord = await this.getUserModelConfigs(userId);
-            
-            // Transform to match frontend interface with constraint info
-            const agents = Object.entries(AGENT_CONFIG).map(([key, config]) => {
-                const constraint = AGENT_CONSTRAINTS.get(key as AgentActionKey);
-                return {
-                    key,
-                    name: config.name,
-                    description: config.description,
-                    constraint: constraint ? {
-                        enabled: constraint.enabled,
-                        allowedModels: Array.from(constraint.allowedModels)
-                    } : undefined
-                };
-            });
+		try {
+			// Get all user configs
+			const userConfigsRecord = await this.getUserModelConfigs(userId);
 
-            const userModelConfigs: Record<string, ModelConfig> = {}
-            const defaultConfigs: Record<string, ModelConfig> = {};
-            for (const [actionKey, mergedConfig] of Object.entries(userConfigsRecord)) {
-                if (mergedConfig.isUserOverride) {
-                    const { isUserOverride, userConfigId, ...modelConfig } = mergedConfig;
-                    userModelConfigs[actionKey] = modelConfig;
-                }
-                const defaultConfig = AGENT_CONFIG[actionKey as AgentActionKey];
-                if (defaultConfig) {
-                    defaultConfigs[actionKey] = defaultConfig;
-                }
-            }
+			// Transform to match frontend interface with constraint info
+			const agents = Object.keys(AGENT_CONFIG).map((key) => {
+				const constraint = AGENT_CONSTRAINTS.get(key as AgentActionKey);
+				const metadata = AGENT_ACTION_METADATA[key as AgentActionKey];
+				return {
+					key,
+					name: metadata.name,
+					description: metadata.description,
+					constraint: constraint
+						? {
+								enabled: constraint.enabled,
+								allowedModels: Array.from(
+									constraint.allowedModels,
+								),
+							}
+						: undefined,
+				};
+			});
 
-            return {
-                agents,
-                userConfigs: userModelConfigs,
-                defaultConfigs
-            };
-        } catch (error) {
-            console.error('Error fetching model configs info:', error);
-            throw error;
-        }
-    }
+			const userModelConfigsResult: Record<string, ModelConfig> = {};
+			const defaultConfigs: Record<string, ModelConfig> = {};
+			for (const [actionKey, mergedConfig] of Object.entries(
+				userConfigsRecord,
+			)) {
+				if (mergedConfig.isUserOverride) {
+					const { isUserOverride, userConfigId, ...modelConfig } =
+						mergedConfig;
+					userModelConfigsResult[actionKey] = modelConfig;
+				}
+				const defaultConfig = AGENT_CONFIG[actionKey as AgentActionKey];
+				if (defaultConfig) {
+					defaultConfigs[actionKey] = defaultConfig;
+				}
+			}
+
+			return {
+				agents,
+				userConfigs: userModelConfigsResult,
+				defaultConfigs,
+			};
+		} catch (error) {
+			console.error('Error fetching model configs info:', error);
+			throw error;
+		}
+	}
 
 	/**
 	 * Update or create a user model configuration.
@@ -264,19 +353,26 @@ export class ModelConfigService extends BaseService {
 	async upsertUserModelConfig(
 		userId: string,
 		agentActionName: AgentActionKey,
-		config: Partial<ModelConfig>
+		config: Partial<ModelConfig>,
 	): Promise<UserModelConfig> {
 		// Validate constraints (throws if invalid)
 		this.validateModel(agentActionName, config.name, 'primary', 'throw');
-		this.validateModel(agentActionName, config.fallbackModel, 'fallback', 'throw');
+		this.validateModel(
+			agentActionName,
+			config.fallbackModel,
+			'fallback',
+			'throw',
+		);
 
 		const existingConfig = await this.database
 			.select()
 			.from(userModelConfigs)
-			.where(and(
-				eq(userModelConfigs.userId, userId),
-				eq(userModelConfigs.agentActionName, agentActionName)
-			))
+			.where(
+				and(
+					eq(userModelConfigs.userId, userId),
+					eq(userModelConfigs.agentActionName, agentActionName),
+				),
+			)
 			.limit(1);
 
 		const configData: Partial<NewUserModelConfig> = {
@@ -284,11 +380,15 @@ export class ModelConfigService extends BaseService {
 			agentActionName,
 			modelName: config.name ?? null,
 			maxTokens: config.max_tokens ?? null,
-			temperature: config.temperature !== undefined ? config.temperature : null,
-			reasoningEffort: (config.reasoning_effort && config.reasoning_effort !== 'minimal') ? config.reasoning_effort : null,
+			temperature:
+				config.temperature !== undefined ? config.temperature : null,
+			reasoningEffort:
+				config.reasoning_effort && config.reasoning_effort !== 'minimal'
+					? config.reasoning_effort
+					: null,
 			fallbackModel: config.fallbackModel ?? null,
 			isActive: true,
-			updatedAt: new Date()
+			updatedAt: new Date(),
 		};
 
 		if (existingConfig.length > 0) {
@@ -305,7 +405,7 @@ export class ModelConfigService extends BaseService {
 			const newConfig: NewUserModelConfig = {
 				id: generateId(),
 				...configData,
-				createdAt: new Date()
+				createdAt: new Date(),
 			} as NewUserModelConfig;
 
 			const created = await this.database
@@ -320,13 +420,18 @@ export class ModelConfigService extends BaseService {
 	/**
 	 * Delete/reset a user model configuration (revert to default)
 	 */
-	async deleteUserModelConfig(userId: string, agentActionName: AgentActionKey): Promise<boolean> {
+	async deleteUserModelConfig(
+		userId: string,
+		agentActionName: AgentActionKey,
+	): Promise<boolean> {
 		const result = await this.database
 			.delete(userModelConfigs)
-			.where(and(
-				eq(userModelConfigs.userId, userId),
-				eq(userModelConfigs.agentActionName, agentActionName)
-			));
+			.where(
+				and(
+					eq(userModelConfigs.userId, userId),
+					eq(userModelConfigs.agentActionName, agentActionName),
+				),
+			);
 
 		return (result.meta?.changes || 0) > 0;
 	}
