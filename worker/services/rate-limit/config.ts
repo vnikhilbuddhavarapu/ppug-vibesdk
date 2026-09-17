@@ -36,7 +36,7 @@ export interface DORateLimitConfig extends RateLimitConfigBase {
 	calendarDaily?: boolean;
 }
 
-export type LLMCallsRateLimitConfig = (DORateLimitConfig) & {
+export type LLMCallsRateLimitConfig = DORateLimitConfig & {
 	excludeBYOKUsers: boolean;
 	/** If true, users who have a Cloudflare account + gateway configured bypass LLM rate limits entirely. */
 	excludeCloudflareConnected?: boolean;
@@ -80,14 +80,14 @@ export const DEFAULT_RATE_LIMIT_SETTINGS: RateLimitSettings = {
 	appCreation: {
 		enabled: true,
 		store: RateLimitStore.DURABLE_OBJECT,
-		limit: 3,
-		dailyLimit: 3,
+		limit: 10000,
+		dailyLimit: 10000,
 		period: 24 * 60 * 60, // 24 hours
 	},
 	llmCalls: {
 		enabled: true,
 		store: RateLimitStore.DURABLE_OBJECT,
-		limit: 200,
+		limit: 10000,
 		period: 24 * 60 * 60, // 1 day (used as reporting period; window is calendar-aligned)
 		calendarDaily: true,
 		excludeBYOKUsers: true,

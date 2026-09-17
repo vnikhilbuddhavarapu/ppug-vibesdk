@@ -33,6 +33,11 @@ dist
 .env
 .env.*
 
+# real wrangler config carries this event's account/zone/resource IDs; copy
+# wrangler.example.jsonc to wrangler.jsonc and fill in your own values.
+wrangler.jsonc
+worker-configuration.d.ts
+
 runner/downloads
 /generated/prisma
 
