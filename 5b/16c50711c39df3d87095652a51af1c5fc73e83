@@ -1,0 +1,23 @@
+src/components/auth/AuthModalProvider.tsx
+  s_6c7b7f53dc5631::t_964713ca4ab4ac 6-12,18-24,27-29,32-38,42,46-60,62-70,72-78,80-91,93-103,105-107,109-112,114-137
+src/contexts/auth-context.tsx
+  s_6c7b7f53dc5631::t_9ec9e041db0c3a 15,54,66-72,107,116,308-324,332,379-380,383,386-394,416,461,478
+worker/middleware/auth/accessAuth.ts
+  s_6c7b7f53dc5631::t_efecc9d99bbc06 1-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5b16c50711c39df3d87095652a51af1c5fc73e83",
+  "prompts": {},
+  "sessions": {
+    "s_6c7b7f53dc5631": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "8d56a12f-aafc-43de-a087-9249b263e87a",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
