@@ -1,0 +1,29 @@
+src/components/config-modal.tsx
+  s_0ab1261da85652::t_c6f2a9f8bf40ef 13-19,23-28,33-37,41-49,54-55,59-66,71-91,95-103,105-636
+src/routes/settings/index.tsx
+  s_0ab1261da85652::t_eff17eabfb0f8b 3,15-22,103-110,112-115,151-277,648-662,712-719,732-751,786-807,810-828,835-877,882-885
+worker/agents/inferutils/agentActionMetadata.ts
+  s_0ab1261da85652::t_2db808cb985390 1-76
+worker/agents/inferutils/config.test.ts
+  s_0ab1261da85652::t_95c51bba0d3e5c 1-52
+worker/services/aigateway/metadata.test.ts
+  s_0ab1261da85652::t_22db3f496572a6 1-46
+worker/services/aigateway/metadata.ts
+  s_0ab1261da85652::t_c02269df53d45e 1-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "61917ae4816534979c51fcd5a99ccbc1b5c454fd",
+  "prompts": {},
+  "sessions": {
+    "s_0ab1261da85652": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "b5712f4e-c5be-4068-b07d-e5f640b7c89e",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
