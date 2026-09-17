@@ -6,6 +6,7 @@ describe('providerLabel', () => {
 		expect(providerLabel('google')).toBe('Google');
 		expect(providerLabel('github')).toBe('GitHub');
 		expect(providerLabel('cloudflare')).toBe('Cloudflare');
+		expect(providerLabel('access')).toBe('Cloudflare Access');
 	});
 
 	it('falls back for email or unknown/missing providers', () => {

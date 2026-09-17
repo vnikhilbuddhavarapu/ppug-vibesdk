@@ -2,12 +2,17 @@
  * Authentication Type Definitions
  */
 
-import type { ApiKey, AuthAttempt as SchemaAuthAttempt, AuditLog, OAuthState } from '../database/schema';
+import type {
+	ApiKey,
+	AuthAttempt as SchemaAuthAttempt,
+	AuditLog,
+	OAuthState,
+} from '../database/schema';
 
 /**
  * OAuth provider types
  */
-export type OAuthProvider = 'google' | 'github' | 'cloudflare';
+export type OAuthProvider = 'google' | 'github' | 'cloudflare' | 'access';
 
 /**
  * Authenticated user for middleware and session context
@@ -18,12 +23,12 @@ export interface AuthUser {
 	displayName?: string;
 	username?: string;
 	avatarUrl?: string;
-    bio?: string;
-    timezone?: string;
-    provider?: string;
-    emailVerified?: boolean;
-    createdAt?: Date;
-    isAnonymous?: boolean;
+	bio?: string;
+	timezone?: string;
+	provider?: string;
+	emailVerified?: boolean;
+	createdAt?: Date;
+	isAnonymous?: boolean;
 }
 
 /**
@@ -34,7 +39,7 @@ export interface AuthSession {
 	email: string;
 	sessionId: string;
 	expiresAt: Date | null;
-};
+}
 
 /**
  * Token payload structure for JWT tokens
@@ -58,8 +63,8 @@ export interface TokenPayload {
 }
 
 export interface AuthUserSession {
-    user: AuthUser;
-    sessionId: string;
+	user: AuthUser;
+	sessionId: string;
 }
 
 /**
@@ -75,7 +80,7 @@ export interface SessionResponse {
  * Authentication result from login/register operations
  */
 export interface AuthResult extends AuthUserSession {
-    expiresAt: Date | null;
+	expiresAt: Date | null;
 	accessToken: string;
 	isNewUser?: boolean;
 	requiresEmailVerification?: boolean;
@@ -86,7 +91,7 @@ export interface AuthResult extends AuthUserSession {
 	 * token cookie + provision gateways). Never populated for other providers.
 	 */
 	oauthTokens?: OAuthTokens;
-};
+}
 
 /**
  * OAuth provider user information
@@ -127,7 +132,10 @@ export type OAuthStateData = Omit<OAuthState, 'provider'> & {
  * API Key info for client display
  * Subset of ApiKey schema without sensitive data
  */
-export type ApiKeyInfo = Pick<ApiKey, 'id' | 'name' | 'keyPreview' | 'createdAt' | 'lastUsed' | 'isActive'>;
+export type ApiKeyInfo = Pick<
+	ApiKey,
+	'id' | 'name' | 'keyPreview' | 'createdAt' | 'lastUsed' | 'isActive'
+>;
 
 /**
  * Re-export AuthAttempt from schema

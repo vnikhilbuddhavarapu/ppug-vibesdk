@@ -12,11 +12,7 @@ import React, {
 	useMemo,
 } from 'react';
 import { useNavigate } from 'react-router';
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { useSentryUser } from '@/hooks/useSentryUser';
 import { queryKeys } from '@/lib/query-keys';
@@ -55,6 +51,7 @@ interface AuthContextType {
 		google: boolean;
 		github: boolean;
 		cloudflare: boolean;
+		access: boolean;
 		email: boolean;
 	} | null;
 	hasOAuth: boolean;
@@ -65,6 +62,13 @@ interface AuthContextType {
 		provider: 'google' | 'github' | 'cloudflare',
 		redirectUrl?: string,
 	) => void;
+
+	// Cloudflare Access login. Unlike `login`, this navigates the browser
+	// directly to the Access-protected callback route rather than one of our
+	// own `/api/auth/oauth/:provider` endpoints — Access itself intercepts
+	// that navigation and runs its hosted login before handing the request
+	// back to us.
+	loginWithAccess: (redirectUrl?: string) => void;
 
 	// Email/password login method
 	loginWithEmail: (credentials: {
@@ -100,6 +104,7 @@ const DEFAULT_AUTH_PROVIDERS: AuthProvidersResponseData = {
 		google: false,
 		github: false,
 		cloudflare: false,
+		access: false,
 		email: true,
 	},
 	hasOAuth: false,
@@ -108,9 +113,7 @@ const DEFAULT_AUTH_PROVIDERS: AuthProvidersResponseData = {
 
 const INTENDED_URL_KEY = 'auth_intended_url';
 
-function buildSessionFromProfile(
-	data: ProfileResponseData,
-): CachedAuthSession {
+function buildSessionFromProfile(data: ProfileResponseData): CachedAuthSession {
 	return {
 		user: { ...data.user, isAnonymous: false },
 		sessionId: data.sessionId || data.user.id,
@@ -302,6 +305,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		[setIntendedUrl],
 	);
 
+	// Cloudflare Access login: navigate the browser directly to the
+	// Access-protected callback route (not an `/api/auth/oauth/:provider`
+	// endpoint) so Access itself can intercept and run its hosted login.
+	// The intended redirect travels as a query param since there is no
+	// server-side OAuth state row for Access to stash it in.
+	const loginWithAccess = useCallback((redirectUrl?: string) => {
+		const intendedUrl =
+			redirectUrl || window.location.pathname + window.location.search;
+
+		const accessUrl = new URL(
+			'/auth/access/callback',
+			window.location.origin,
+		);
+		accessUrl.searchParams.set('redirect_url', intendedUrl);
+		window.location.href = accessUrl.toString();
+	}, []);
+
 	const loginMutation = useMutation({
 		mutationFn: async (credentials: {
 			email: string;
@@ -309,9 +329,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		}) => {
 			const response = await apiClient.loginWithEmail(credentials);
 			if (!response.success || !response.data) {
-				throw new Error(
-					response.error?.message || 'Login failed',
-				);
+				throw new Error(response.error?.message || 'Login failed');
 			}
 			return response.data;
 		},
@@ -358,12 +376,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 	const logoutMutation = useMutation({
 		mutationFn: async () => {
 			try {
-				await apiClient.logout();
+				const response = await apiClient.logout();
+				return response.data?.logoutUrl;
 			} catch (err) {
 				console.error('Logout error:', err);
+				return undefined;
 			}
 		},
-		onSettled: async () => {
+		onSettled: async (logoutUrl) => {
+			// Access-originated sessions route through Access's own hosted
+			// logout so the browser drops its `CF_Authorization` cookie too;
+			// otherwise "Continue with Access" would silently re-authenticate.
+			// The full-page navigation away makes cache cleanup ordering moot.
+			if (logoutUrl) {
+				window.location.href = logoutUrl;
+				return;
+			}
 			// Navigate before dropping app caches: removing a still-observed
 			// query makes its observer refetch, and that request 401s and pops
 			// the sign-in modal mid-logout.
@@ -385,11 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 	);
 
 	const register = useCallback(
-		async (data: {
-			email: string;
-			password: string;
-			name?: string;
-		}) => {
+		async (data: { email: string; password: string; name?: string }) => {
 			await registerMutateAsync(data);
 		},
 		[registerMutateAsync],
@@ -434,6 +458,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 			hasOAuth: providers?.hasOAuth ?? false,
 			requiresEmailAuth: providers?.requiresEmailAuth ?? true,
 			login,
+			loginWithAccess,
 			loginWithEmail,
 			register,
 			logout,
@@ -450,6 +475,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 			error,
 			providers,
 			login,
+			loginWithAccess,
 			loginWithEmail,
 			register,
 			logout,
