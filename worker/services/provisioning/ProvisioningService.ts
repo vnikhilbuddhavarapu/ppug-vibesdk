@@ -224,13 +224,14 @@ export class ProvisioningService extends BaseService {
 	}
 
 	/**
-	 * Runs an additive-only D1 migration against a resource the given user
-	 * owns. Rejects the whole batch (no partial execution) if any statement
-	 * fails the allowlist.
+	 * Runs an additive-only D1 migration against the D1 database the given
+	 * user provisioned for `appId` under `bindingName`. Rejects the whole
+	 * batch (no partial execution) if any statement fails the allowlist.
 	 */
 	async runD1Migration(
 		userId: string,
-		resourceRecordId: string,
+		appId: string,
+		bindingName: string,
 		sql: string,
 	): Promise<void> {
 		validateMigrationSql(sql);
@@ -240,14 +241,17 @@ export class ProvisioningService extends BaseService {
 			.from(schema.provisionedResources)
 			.where(
 				and(
-					eq(schema.provisionedResources.id, resourceRecordId),
+					eq(schema.provisionedResources.appId, appId),
+					eq(schema.provisionedResources.bindingName, bindingName),
 					eq(schema.provisionedResources.userId, userId),
 					eq(schema.provisionedResources.resourceType, 'd1'),
 					eq(schema.provisionedResources.status, 'active'),
 				),
 			);
 		if (!row) {
-			throw new Error('Provisioned D1 database not found');
+			throw new Error(
+				`No active D1 database provisioned for binding "${bindingName}"`,
+			);
 		}
 
 		const response = await fetch(
@@ -262,7 +266,8 @@ export class ProvisioningService extends BaseService {
 
 		this.logger.info('Ran D1 migration', {
 			userId,
-			resourceRecordId,
+			appId,
+			bindingName,
 			databaseId: row.resourceId,
 		});
 	}

@@ -184,8 +184,10 @@ describe('ProvisioningService', () => {
 			{
 				id: 'res-1',
 				userId: 'user-1',
+				appId: 'app-1',
 				resourceType: 'd1',
 				resourceId: 'db-uuid',
+				bindingName: 'DB',
 				status: 'active',
 			},
 		];
@@ -199,7 +201,8 @@ describe('ProvisioningService', () => {
 		await expect(
 			service.runD1Migration(
 				'user-1',
-				'res-1',
+				'app-1',
+				'DB',
 				'CREATE TABLE notes (id TEXT PRIMARY KEY)',
 			),
 		).resolves.toBeUndefined();
@@ -211,7 +214,7 @@ describe('ProvisioningService', () => {
 		const service = new ProvisioningService(testEnv);
 
 		await expect(
-			service.runD1Migration('user-1', 'res-1', 'DROP TABLE notes'),
+			service.runD1Migration('user-1', 'app-1', 'DB', 'DROP TABLE notes'),
 		).rejects.toThrow(MigrationNotAllowedError);
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
@@ -223,9 +226,10 @@ describe('ProvisioningService', () => {
 		await expect(
 			service.runD1Migration(
 				'user-1',
-				'missing',
+				'app-1',
+				'DB',
 				'CREATE TABLE notes (id TEXT PRIMARY KEY)',
 			),
-		).rejects.toThrow('Provisioned D1 database not found');
+		).rejects.toThrow('No active D1 database provisioned for binding "DB"');
 	});
 });
