@@ -45,7 +45,11 @@ import { CloudflareAccountService } from '../../../services/cloudflare/Cloudflar
 import {
 	deployThinkBundleToPlatform,
 	deployThinkBundleToUserAccount,
+	RESERVED_BINDING_NAMES,
 } from '../../../services/deployer/think-user-deploy';
+import type { WorkerBinding } from '../../../services/deployer/types';
+import { ProvisioningService } from '../../../services/provisioning/ProvisioningService';
+import { toWorkerBindings } from '../../../services/provisioning/deployerBindings';
 import { resolveCloudflareAccessToken } from '../../../services/rate-limit/usageChecker';
 import type { CloudflareDeploymentErrorCode } from '../../../api/websocketTypes';
 
@@ -1234,6 +1238,8 @@ export class ThinkCodingBehavior
 			const bundle = await this.callSpace((space) =>
 				space.getDeploymentBundle(branch),
 			);
+			const extraBindings =
+				await this.getProvisionedDeployBindings(instanceId);
 			const result = await deployThinkBundleToUserAccount({
 				accountId: account.accountId,
 				accessToken: token.accessToken,
@@ -1242,6 +1248,7 @@ export class ThinkCodingBehavior
 					this.state.projectName ||
 					`vibe-${instanceId}`,
 				bundle,
+				extraBindings,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,
@@ -1278,6 +1285,29 @@ export class ThinkCodingBehavior
 				},
 			);
 			return null;
+		}
+	}
+
+	/**
+	 * Bindings for any Cloudflare resources provisioned for this app (R2/D1/KV/
+	 * Vectorize), merged into every deploy so redeploys never drop them. Fetched
+	 * fresh from `provisioned_resources` on each deploy rather than cached, so
+	 * the deployed worker's bindings always reflect the current state.
+	 */
+	private async getProvisionedDeployBindings(
+		appId: string,
+	): Promise<WorkerBinding[]> {
+		try {
+			const resources = await new ProvisioningService(
+				this.env,
+			).listResourcesForApp(appId);
+			return toWorkerBindings(resources, RESERVED_BINDING_NAMES);
+		} catch (error) {
+			this.logger.error(
+				'Failed to load provisioned resources for deploy; deploying without them',
+				error,
+			);
+			return [];
 		}
 	}
 
@@ -1328,6 +1358,8 @@ export class ThinkCodingBehavior
 			const bundle = await this.callSpace((space) =>
 				space.getDeploymentBundle(branch),
 			);
+			const extraBindings =
+				await this.getProvisionedDeployBindings(instanceId);
 			const result = await deployThinkBundleToPlatform({
 				accountId,
 				apiToken,
@@ -1338,6 +1370,7 @@ export class ThinkCodingBehavior
 					this.state.projectName ||
 					`vibe-${instanceId}`,
 				bundle,
+				extraBindings,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,

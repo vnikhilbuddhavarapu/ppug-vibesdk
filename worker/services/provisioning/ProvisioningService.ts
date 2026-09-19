@@ -135,6 +135,27 @@ export class ProvisioningService extends BaseService {
 		return rows.map(toRecord);
 	}
 
+	/**
+	 * All active resources provisioned for an app, regardless of owner.
+	 * Deploy-time hydration only trusts `appId` (already the sole scope the
+	 * resource was provisioned under) so it does not need the caller to also
+	 * know the owning `userId`.
+	 */
+	async listResourcesForApp(
+		appId: string,
+	): Promise<ProvisionedResourceRecord[]> {
+		const rows = await this.database
+			.select()
+			.from(schema.provisionedResources)
+			.where(
+				and(
+					eq(schema.provisionedResources.appId, appId),
+					eq(schema.provisionedResources.status, 'active'),
+				),
+			);
+		return rows.map(toRecord);
+	}
+
 	async provisionResource(
 		input: ProvisionResourceInput,
 	): Promise<ProvisionedResourceRecord> {
