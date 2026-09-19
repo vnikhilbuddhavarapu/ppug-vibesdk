@@ -39,6 +39,7 @@ import { UserMessage, AIMessage } from './components/messages';
 import { PhaseTimeline } from './components/phase-timeline';
 import { type DebugMessage } from './components/debug-panel';
 import { DeploymentControls } from './components/deployment-controls';
+import { apiClient } from '@/lib/api-client';
 import { useChat } from './hooks/use-chat';
 import {
 	type ModelConfigsInfo,
@@ -410,7 +411,22 @@ function ChatSession() {
 								<Button
 									variant="ghost"
 									className="h-8 shrink-0 px-2 text-xs text-text-tertiary hover:bg-kumo-elevated hover:text-text-primary"
-									onClick={() => window.open(cloudflareDeploymentUrl, '_blank', 'noopener,noreferrer')}
+									onClick={async () => {
+										if (!app?.id || app.visibility !== 'private') {
+											window.open(cloudflareDeploymentUrl, '_blank', 'noopener,noreferrer');
+											return;
+										}
+										try {
+											const response = await apiClient.generatePreviewToken(app.id);
+											if (response.success && response.data) {
+												window.open(response.data.previewUrl, '_blank', 'noopener,noreferrer');
+												return;
+											}
+										} catch (error) {
+											console.error('Failed to generate owner preview token:', error);
+										}
+										window.open(cloudflareDeploymentUrl, '_blank', 'noopener,noreferrer');
+									}}
 								>
 									<ExternalLink className="size-3.5" />
 									View Live
