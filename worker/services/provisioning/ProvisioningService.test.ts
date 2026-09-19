@@ -4,6 +4,7 @@ import {
 	ProvisioningApiError,
 	PROVISIONING_CAP_PER_TYPE,
 } from './types';
+import { MigrationNotAllowedError } from './migrationAllowlist';
 
 const { state } = vi.hoisted(() => ({
 	state: {
@@ -63,7 +64,11 @@ describe('ProvisioningService', () => {
 	});
 
 	it('provisions an R2 bucket and records ownership', async () => {
-		mockFetchOnce(200, { success: true, errors: [], result: { name: 'ignored-by-cf' } });
+		mockFetchOnce(200, {
+			success: true,
+			errors: [],
+			result: { name: 'ignored-by-cf' },
+		});
 		const service = new ProvisioningService(testEnv);
 
 		const record = await service.provisionResource({
@@ -75,14 +80,19 @@ describe('ProvisioningService', () => {
 
 		expect(record.resourceType).toBe('r2');
 		expect(record.bindingName).toBe('BUCKET');
-		expect(record.resourceName).toMatch(/^ppug-mtl-[0-9a-f]{8}-[0-9a-f]{8}-r2$/);
+		expect(record.resourceName).toMatch(
+			/^ppug-mtl-[0-9a-f]{8}-[0-9a-f]{8}-r2$/,
+		);
 		expect(state.inserted).toHaveLength(1);
 	});
 
 	it('rejects provisioning once the per-type cap is reached', async () => {
-		state.selectResult = Array.from({ length: PROVISIONING_CAP_PER_TYPE }, (_, i) => ({
-			id: `res-${i}`,
-		}));
+		state.selectResult = Array.from(
+			{ length: PROVISIONING_CAP_PER_TYPE },
+			(_, i) => ({
+				id: `res-${i}`,
+			}),
+		);
 		const service = new ProvisioningService(testEnv);
 
 		await expect(
@@ -97,7 +107,11 @@ describe('ProvisioningService', () => {
 	});
 
 	it('surfaces a Cloudflare API failure without recording a resource', async () => {
-		mockFetchOnce(403, { success: false, errors: [{ code: 1000, message: 'nope' }], result: null });
+		mockFetchOnce(403, {
+			success: false,
+			errors: [{ code: 1000, message: 'nope' }],
+			result: null,
+		});
 		const service = new ProvisioningService(testEnv);
 
 		await expect(
@@ -160,8 +174,58 @@ describe('ProvisioningService', () => {
 		state.selectResult = [];
 		const service = new ProvisioningService(testEnv);
 
-		await expect(service.deleteResource('user-1', 'missing')).rejects.toThrow(
-			'Provisioned resource not found',
-		);
+		await expect(
+			service.deleteResource('user-1', 'missing'),
+		).rejects.toThrow('Provisioned resource not found');
+	});
+
+	it('runs an allowed D1 migration against the owned database', async () => {
+		state.selectResult = [
+			{
+				id: 'res-1',
+				userId: 'user-1',
+				resourceType: 'd1',
+				resourceId: 'db-uuid',
+				status: 'active',
+			},
+		];
+		mockFetchOnce(200, {
+			success: true,
+			errors: [],
+			result: [{ results: [], success: true }],
+		});
+		const service = new ProvisioningService(testEnv);
+
+		await expect(
+			service.runD1Migration(
+				'user-1',
+				'res-1',
+				'CREATE TABLE notes (id TEXT PRIMARY KEY)',
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it('rejects a disallowed D1 migration statement before calling the Cloudflare API', async () => {
+		const fetchSpy = vi.fn();
+		global.fetch = fetchSpy as unknown as typeof fetch;
+		const service = new ProvisioningService(testEnv);
+
+		await expect(
+			service.runD1Migration('user-1', 'res-1', 'DROP TABLE notes'),
+		).rejects.toThrow(MigrationNotAllowedError);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('throws when the D1 database is not owned by the user', async () => {
+		state.selectResult = [];
+		const service = new ProvisioningService(testEnv);
+
+		await expect(
+			service.runD1Migration(
+				'user-1',
+				'missing',
+				'CREATE TABLE notes (id TEXT PRIMARY KEY)',
+			),
+		).rejects.toThrow('Provisioned D1 database not found');
 	});
 });

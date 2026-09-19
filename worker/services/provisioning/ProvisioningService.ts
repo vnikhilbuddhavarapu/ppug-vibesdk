@@ -11,6 +11,7 @@ import { eq, and } from 'drizzle-orm';
 import { BaseService } from '../../database/services/BaseService';
 import * as schema from '../../database/schema';
 import { generateId } from '../../utils/idGenerator';
+import { validateMigrationSql } from './migrationAllowlist';
 import {
 	PROVISIONED_RESOURCE_TYPES,
 	PROVISIONING_CAP_PER_TYPE,
@@ -222,6 +223,50 @@ export class ProvisioningService extends BaseService {
 		});
 	}
 
+	/**
+	 * Runs an additive-only D1 migration against a resource the given user
+	 * owns. Rejects the whole batch (no partial execution) if any statement
+	 * fails the allowlist.
+	 */
+	async runD1Migration(
+		userId: string,
+		resourceRecordId: string,
+		sql: string,
+	): Promise<void> {
+		validateMigrationSql(sql);
+
+		const [row] = await this.database
+			.select()
+			.from(schema.provisionedResources)
+			.where(
+				and(
+					eq(schema.provisionedResources.id, resourceRecordId),
+					eq(schema.provisionedResources.userId, userId),
+					eq(schema.provisionedResources.resourceType, 'd1'),
+					eq(schema.provisionedResources.status, 'active'),
+				),
+			);
+		if (!row) {
+			throw new Error('Provisioned D1 database not found');
+		}
+
+		const response = await fetch(
+			`${CF_API_BASE}/accounts/${this.accountId}/d1/database/${row.resourceId}/query`,
+			{
+				method: 'POST',
+				headers: this.cfHeaders(),
+				body: JSON.stringify({ sql }),
+			},
+		);
+		await this.parseCfResponse<unknown>(response, 'd1');
+
+		this.logger.info('Ran D1 migration', {
+			userId,
+			resourceRecordId,
+			databaseId: row.resourceId,
+		});
+	}
+
 	private async createCloudflareResource(
 		resourceType: ProvisionedResourceType,
 		resourceName: string,
@@ -259,7 +304,11 @@ export class ProvisioningService extends BaseService {
 		});
 		if (!response.ok) {
 			const details = await response.text();
-			throw new ProvisioningApiError(resourceType, response.status, details);
+			throw new ProvisioningApiError(
+				resourceType,
+				response.status,
+				details,
+			);
 		}
 	}
 
@@ -288,7 +337,10 @@ export class ProvisioningService extends BaseService {
 				body: JSON.stringify({ title }),
 			},
 		);
-		const result = await this.parseCfResponse<{ id: string }>(response, 'kv');
+		const result = await this.parseCfResponse<{ id: string }>(
+			response,
+			'kv',
+		);
 		return result.id;
 	}
 
@@ -337,7 +389,11 @@ export class ProvisioningService extends BaseService {
 	): Promise<T> {
 		if (!response.ok) {
 			const details = await response.text();
-			throw new ProvisioningApiError(resourceType, response.status, details);
+			throw new ProvisioningApiError(
+				resourceType,
+				response.status,
+				details,
+			);
 		}
 		const body: CloudflareApiResponse<T> = await response.json();
 		if (!body.success || !body.result) {
