@@ -1,0 +1,23 @@
+migrations/0009_brainy_wendell_vaughn.sql
+  s_0ab1261da85652::t_64fc1a50175c70 1-18
+migrations/meta/0009_snapshot.json
+  s_0ab1261da85652::t_a32a551746d7ac 1-2921
+migrations/meta/_journal.json
+  s_0ab1261da85652::t_18496ceaf2d87f 67-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "151cb7ff5d8aedcaf9f9e75ae0bb6fed12ad8bd0",
+  "prompts": {},
+  "sessions": {
+    "s_0ab1261da85652": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "b5712f4e-c5be-4068-b07d-e5f640b7c89e",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
