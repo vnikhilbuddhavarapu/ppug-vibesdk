@@ -22,12 +22,16 @@ vi.mock('./api/cloudflare-api', () => ({
 }));
 
 // Import after mocks are registered
-const { deployThinkBundleToUserAccount, deployThinkBundleToPlatform } = await import('./think-user-deploy');
+const { deployThinkBundleToUserAccount, deployThinkBundleToPlatform } =
+	await import('./think-user-deploy');
 
-function makeBundle(overrides?: Partial<BranchDeploymentBundle>): BranchDeploymentBundle {
+function makeBundle(
+	overrides?: Partial<BranchDeploymentBundle>,
+): BranchDeploymentBundle {
 	return {
 		modules: {
-			'index.js': 'export class App {}\nexport default { fetch() { return new Response("ok"); } };',
+			'index.js':
+				'export class App {}\nexport default { fetch() { return new Response("ok"); } };',
 		},
 		mainModule: 'index.js',
 		assets: { '/index.html': '<html><body>hi</body></html>' },
@@ -40,7 +44,9 @@ function makeBundle(overrides?: Partial<BranchDeploymentBundle>): BranchDeployme
 
 describe('sanitizeWorkerName', () => {
 	it('creates a stable Workers-compatible script name', () => {
-		expect(sanitizeWorkerName(' Vibe: My New App! ')).toBe('vibe-my-new-app');
+		expect(sanitizeWorkerName(' Vibe: My New App! ')).toBe(
+			'vibe-my-new-app',
+		);
 	});
 
 	it('limits names and provides a fallback', () => {
@@ -65,13 +71,88 @@ describe('deployThinkBundleToPlatform', () => {
 		});
 
 		expect(result.deploymentId).toBe('my-app');
-		expect(result.deploymentUrl).toBe('https://my-app.build-preview.cloudflare.dev');
+		expect(result.deploymentUrl).toBe(
+			'https://my-app.build-preview.cloudflare.dev',
+		);
 		expect(deployWithAssets).toHaveBeenCalledTimes(1);
 		// dispatchNamespace is the 8th positional arg of deployWithAssets
-		expect(deployWithAssets.mock.calls[0][7]).toBe('vibesdk-default-namespace');
+		expect(deployWithAssets.mock.calls[0][7]).toBe(
+			'vibesdk-default-namespace',
+		);
 		// Platform deploys never touch workers.dev
 		expect(enableWorkersDev).not.toHaveBeenCalled();
 		expect(getWorkersDevSubdomain).not.toHaveBeenCalled();
+	});
+
+	it('merges extraBindings (provisioned resources) into the deployed worker bindings', async () => {
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+			extraBindings: [{ name: 'DB', type: 'd1', database_id: 'db-uuid' }],
+		});
+
+		// bindings is the 6th positional arg of deployWithAssets
+		const bindings = deployWithAssets.mock.calls[0][5];
+		expect(bindings).toContainEqual({
+			name: 'DB',
+			type: 'd1',
+			database_id: 'db-uuid',
+		});
+	});
+
+	it('applies extraBindings again on every deploy call, so a redeploy never drops them', async () => {
+		const extraBindings = [
+			{ name: 'KV', type: 'kv_namespace', namespace_id: 'kv-id' },
+		];
+
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+			extraBindings,
+		});
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+			extraBindings,
+		});
+
+		expect(deployWithAssets).toHaveBeenCalledTimes(2);
+		for (const call of deployWithAssets.mock.calls) {
+			expect(call[5]).toContainEqual(extraBindings[0]);
+		}
+	});
+
+	it('passes vars (CF_AI_BASE_URL/CF_AI_API_KEY) through to deployWithAssets', async () => {
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+			vars: {
+				CF_AI_BASE_URL: 'https://gateway.example.com/api/proxy/openai',
+				CF_AI_API_KEY: 'token',
+			},
+		});
+
+		// vars is the 7th positional arg of deployWithAssets
+		expect(deployWithAssets.mock.calls[0][6]).toEqual({
+			CF_AI_BASE_URL: 'https://gateway.example.com/api/proxy/openai',
+			CF_AI_API_KEY: 'token',
+		});
 	});
 
 	it('falls back to a simple deploy when the bundle has no assets', async () => {
@@ -108,6 +189,8 @@ describe('deployThinkBundleToUserAccount', () => {
 		expect(deployWithAssets).toHaveBeenCalledTimes(1);
 		expect(deployWithAssets.mock.calls[0][7]).toBeUndefined();
 		expect(enableWorkersDev).toHaveBeenCalledWith('my-app');
-		expect(result.deploymentUrl).toBe('https://my-app.user-sub.workers.dev');
+		expect(result.deploymentUrl).toBe(
+			'https://my-app.user-sub.workers.dev',
+		);
 	});
 });

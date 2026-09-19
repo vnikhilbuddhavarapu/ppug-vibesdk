@@ -4,7 +4,11 @@ import { WorkerDeployer } from './deployer';
 import type { AssetConfig, WorkerBinding, WorkerObservability } from './types';
 import { createAssetManifest } from './utils';
 
-const APP_BINDING = 'VIBE_APP';
+export const APP_BINDING = 'VIBE_APP';
+export const RESERVED_BINDING_NAMES: ReadonlySet<string> = new Set([
+	APP_BINDING,
+	'ASSETS',
+]);
 const OBSERVABILITY: WorkerObservability = {
 	enabled: false,
 	head_sampling_rate: 1,
@@ -29,7 +33,9 @@ export interface ThinkUserDeploymentResult {
 function normalizeModule(value: string | Record<string, unknown>): string {
 	if (typeof value === 'string') return value;
 	if (typeof value.text === 'string') return value.text;
-	throw new Error('The generated Worker contains a non-text module that cannot be published');
+	throw new Error(
+		'The generated Worker contains a non-text module that cannot be published',
+	);
 }
 
 export function sanitizeWorkerName(value: string): string {
@@ -42,13 +48,21 @@ export function sanitizeWorkerName(value: string): string {
 }
 
 function exportsApp(moduleSource: string): boolean {
-	return /export\s+(?:declare\s+)?class\s+App\b/.test(moduleSource)
-		|| /export\s*\{[^}]*\bApp\b[^}]*\}/s.test(moduleSource)
-		|| /\bApp\s+as\s+App\b/.test(moduleSource);
+	return (
+		/export\s+(?:declare\s+)?class\s+App\b/.test(moduleSource) ||
+		/export\s*\{[^}]*\bApp\b[^}]*\}/s.test(moduleSource) ||
+		/\bApp\s+as\s+App\b/.test(moduleSource)
+	);
 }
 
-function buildEntryModule(mainModule: string, hasAssets: boolean, hasApp: boolean): string {
-	const specifier = mainModule.startsWith('.') ? mainModule : `./${mainModule}`;
+function buildEntryModule(
+	mainModule: string,
+	hasAssets: boolean,
+	hasApp: boolean,
+): string {
+	const specifier = mainModule.startsWith('.')
+		? mainModule
+		: `./${mainModule}`;
 	const appExport = hasApp
 		? `export { App } from ${JSON.stringify(specifier)};\n`
 		: 'import { DurableObject } from "cloudflare:workers";\nexport class App extends DurableObject {}\n';
@@ -69,6 +83,7 @@ interface ThinkBundleArtifacts {
 	assets: Record<string, { hash: string; size: number }> | undefined;
 	assetContents: Map<string, Buffer>;
 	bindings: WorkerBinding[];
+	vars: Record<string, string> | undefined;
 	assetsConfig: AssetConfig | undefined;
 	migration: { tag: string; new_sqlite_classes: string[] }[] | undefined;
 }
@@ -76,6 +91,8 @@ interface ThinkBundleArtifacts {
 async function buildThinkBundleArtifacts(
 	bundle: BranchDeploymentBundle,
 	appName: string,
+	extraBindings: WorkerBinding[] = [],
+	vars?: Record<string, string>,
 ): Promise<ThinkBundleArtifacts> {
 	const scriptName = sanitizeWorkerName(appName);
 	const modules = new Map<string, string>();
@@ -84,7 +101,9 @@ async function buildThinkBundleArtifacts(
 	}
 	const mainModuleSource = modules.get(bundle.mainModule);
 	if (!mainModuleSource) {
-		throw new Error(`Generated Worker entry module not found: ${bundle.mainModule}`);
+		throw new Error(
+			`Generated Worker entry module not found: ${bundle.mainModule}`,
+		);
 	}
 	const hasApp = exportsApp(mainModuleSource);
 
@@ -96,9 +115,10 @@ async function buildThinkBundleArtifacts(
 		assetBuffers.set(path, bytes.buffer as ArrayBuffer);
 		assetContents.set(path, Buffer.from(bytes));
 	}
-	const assets = assetBuffers.size > 0
-		? await createAssetManifest(assetBuffers)
-		: undefined;
+	const assets =
+		assetBuffers.size > 0
+			? await createAssetManifest(assetBuffers)
+			: undefined;
 	const bindings: WorkerBinding[] = [];
 	if (hasApp) {
 		bindings.push({
@@ -110,18 +130,26 @@ async function buildThinkBundleArtifacts(
 	if (assets) {
 		bindings.push({ name: 'ASSETS', type: 'assets' });
 	}
+	bindings.push(...extraBindings);
 	const assetsConfig: AssetConfig | undefined = assets
 		? {
-			...bundle.assetConfig,
-			binding: 'ASSETS',
-			run_worker_first: true,
-		}
-	: undefined;
+				...bundle.assetConfig,
+				binding: 'ASSETS',
+				run_worker_first: true,
+			}
+		: undefined;
 	if (!assets && !hasApp) {
-		throw new Error('Generated Worker has neither static assets nor an App Durable Object export');
+		throw new Error(
+			'Generated Worker has neither static assets nor an App Durable Object export',
+		);
 	}
 	const migration = hasApp
-		? [{ tag: `vibe-app-${bundle.commitHash.slice(0, 12)}`, new_sqlite_classes: ['App'] }]
+		? [
+				{
+					tag: `vibe-app-${bundle.commitHash.slice(0, 12)}`,
+					new_sqlite_classes: ['App'],
+				},
+			]
 		: undefined;
 	const entry = buildEntryModule(bundle.mainModule, Boolean(assets), hasApp);
 
@@ -133,6 +161,7 @@ async function buildThinkBundleArtifacts(
 		assets,
 		assetContents,
 		bindings,
+		vars,
 		assetsConfig,
 		migration,
 	};
@@ -151,7 +180,7 @@ async function deployArtifacts(
 			artifacts.assets,
 			artifacts.assetContents,
 			artifacts.bindings,
-			undefined,
+			artifacts.vars,
 			dispatchNamespace,
 			artifacts.assetsConfig,
 			artifacts.modules,
@@ -165,7 +194,7 @@ async function deployArtifacts(
 			artifacts.entry,
 			artifacts.compatibilityDate,
 			artifacts.bindings,
-			undefined,
+			artifacts.vars,
 			dispatchNamespace,
 			artifacts.modules,
 			undefined,
@@ -180,8 +209,15 @@ export async function deployThinkBundleToUserAccount(input: {
 	accessToken: string;
 	appName: string;
 	bundle: BranchDeploymentBundle;
+	extraBindings?: WorkerBinding[];
+	vars?: Record<string, string>;
 }): Promise<ThinkUserDeploymentResult> {
-	const artifacts = await buildThinkBundleArtifacts(input.bundle, input.appName);
+	const artifacts = await buildThinkBundleArtifacts(
+		input.bundle,
+		input.appName,
+		input.extraBindings,
+		input.vars,
+	);
 	const deployer = new WorkerDeployer(input.accountId, input.accessToken);
 	await deployArtifacts(deployer, artifacts, undefined);
 
@@ -206,8 +242,15 @@ export async function deployThinkBundleToPlatform(input: {
 	previewDomain: string;
 	appName: string;
 	bundle: BranchDeploymentBundle;
+	extraBindings?: WorkerBinding[];
+	vars?: Record<string, string>;
 }): Promise<ThinkUserDeploymentResult> {
-	const artifacts = await buildThinkBundleArtifacts(input.bundle, input.appName);
+	const artifacts = await buildThinkBundleArtifacts(
+		input.bundle,
+		input.appName,
+		input.extraBindings,
+		input.vars,
+	);
 	const deployer = new WorkerDeployer(input.accountId, input.apiToken);
 	await deployArtifacts(deployer, artifacts, input.dispatchNamespace);
 

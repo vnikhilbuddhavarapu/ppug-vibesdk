@@ -129,6 +129,7 @@ export interface WorkerBinding {
 	namespace_id?: string; // For KV namespaces
 	database_id?: string; // For D1 databases
 	bucket_name?: string; // For R2 buckets
+	index_name?: string; // For Vectorize indexes
 }
 
 /**

@@ -40,12 +40,20 @@ import { AI_MODEL_CONFIG, AIModels } from '../../inferutils/config.types';
 import { ModelConfigService } from '../../../database/services/ModelConfigService';
 import { UserService } from '../../../database/services/UserService';
 import { buildAigMetadataHeader } from '../../../services/aigateway/metadata';
+import {
+	generateAppProxyToken,
+	generateAppProxyUrl,
+} from '../../../services/aigateway-proxy/controller';
 import type { BranchDeploymentBundle } from '@space-do/space';
 import { CloudflareAccountService } from '../../../services/cloudflare/CloudflareAccountService';
 import {
 	deployThinkBundleToPlatform,
 	deployThinkBundleToUserAccount,
+	RESERVED_BINDING_NAMES,
 } from '../../../services/deployer/think-user-deploy';
+import type { WorkerBinding } from '../../../services/deployer/types';
+import { ProvisioningService } from '../../../services/provisioning/ProvisioningService';
+import { toWorkerBindings } from '../../../services/provisioning/deployerBindings';
 import { resolveCloudflareAccessToken } from '../../../services/rate-limit/usageChecker';
 import type { CloudflareDeploymentErrorCode } from '../../../api/websocketTypes';
 
@@ -1234,6 +1242,12 @@ export class ThinkCodingBehavior
 			const bundle = await this.callSpace((space) =>
 				space.getDeploymentBundle(branch),
 			);
+			const extraBindings =
+				await this.getProvisionedDeployBindings(instanceId);
+			const vars = await this.getAiProxyDeployVars(
+				instanceId,
+				this.state.metadata.userId,
+			);
 			const result = await deployThinkBundleToUserAccount({
 				accountId: account.accountId,
 				accessToken: token.accessToken,
@@ -1242,6 +1256,8 @@ export class ThinkCodingBehavior
 					this.state.projectName ||
 					`vibe-${instanceId}`,
 				bundle,
+				extraBindings,
+				vars,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,
@@ -1278,6 +1294,50 @@ export class ThinkCodingBehavior
 				},
 			);
 			return null;
+		}
+	}
+
+	/**
+	 * `CF_AI_BASE_URL`/`CF_AI_API_KEY` env vars so a deployed Think app can call
+	 * models at runtime through the platform's AI Gateway proxy — the same
+	 * pattern already wired for the legacy `DeploymentManager` sandbox path.
+	 * `undefined` (no vars injected) when the proxy isn't configured for this
+	 * environment (`AI_PROXY_JWT_SECRET` unset).
+	 */
+	private async getAiProxyDeployVars(
+		appId: string,
+		userId: string,
+	): Promise<Record<string, string> | undefined> {
+		const secret = this.env.AI_PROXY_JWT_SECRET;
+		if (typeof secret !== 'string' || secret.trim().length === 0) {
+			return undefined;
+		}
+		return {
+			CF_AI_BASE_URL: generateAppProxyUrl(this.env),
+			CF_AI_API_KEY: await generateAppProxyToken(appId, userId, this.env),
+		};
+	}
+
+	/**
+	 * Bindings for any Cloudflare resources provisioned for this app (R2/D1/KV/
+	 * Vectorize), merged into every deploy so redeploys never drop them. Fetched
+	 * fresh from `provisioned_resources` on each deploy rather than cached, so
+	 * the deployed worker's bindings always reflect the current state.
+	 */
+	private async getProvisionedDeployBindings(
+		appId: string,
+	): Promise<WorkerBinding[]> {
+		try {
+			const resources = await new ProvisioningService(
+				this.env,
+			).listResourcesForApp(appId);
+			return toWorkerBindings(resources, RESERVED_BINDING_NAMES);
+		} catch (error) {
+			this.logger.error(
+				'Failed to load provisioned resources for deploy; deploying without them',
+				error,
+			);
+			return [];
 		}
 	}
 
@@ -1328,6 +1388,12 @@ export class ThinkCodingBehavior
 			const bundle = await this.callSpace((space) =>
 				space.getDeploymentBundle(branch),
 			);
+			const extraBindings =
+				await this.getProvisionedDeployBindings(instanceId);
+			const vars = await this.getAiProxyDeployVars(
+				instanceId,
+				this.state.metadata.userId,
+			);
 			const result = await deployThinkBundleToPlatform({
 				accountId,
 				apiToken,
@@ -1338,6 +1404,8 @@ export class ThinkCodingBehavior
 					this.state.projectName ||
 					`vibe-${instanceId}`,
 				bundle,
+				extraBindings,
+				vars,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,

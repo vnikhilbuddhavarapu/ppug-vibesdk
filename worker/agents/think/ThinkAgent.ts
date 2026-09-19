@@ -29,6 +29,11 @@ import { createBrowserConsoleLogsTool } from './browser-logs-tool';
 import { createDeploySpaceTool } from './deploy-tool';
 import { createCommitTool } from './commit-tool';
 import { createSetTitleTool } from './set-title-tool';
+import {
+	createProvisionResourceTool,
+	createListProvisionedResourcesTool,
+	createRunD1MigrationTool,
+} from './provisioning-tools';
 import { selectThinkContextMessages } from './context-selector';
 import { getUserConfigurableSettings } from '../../config';
 import { RateLimitService } from '../../services/rate-limit/rateLimits';
@@ -372,10 +377,11 @@ export class ThinkAgent extends Think<Env> {
 
 	override getTools(): ToolSet {
 		const ops = createSpaceWorkspaceOps(() => this.getSpaceStub());
-		const previewUrl = this.getConfig<ThinkAgentConfig>()?.previewUrl;
+		const config = this.getConfig<ThinkAgentConfig>();
+		const previewUrl = config?.previewUrl;
 		// Same names as Think's built-in workspace tools, so these SpaceDO-backed
 		// versions win the tool-merge. Bash is disabled via `workspaceBash`.
-		return {
+		const tools: Record<string, unknown> = {
 			read: createReadTool({ ops }),
 			write: createWriteTool({ ops }),
 			edit: createEditTool({ ops }),
@@ -398,7 +404,26 @@ export class ThinkAgent extends Think<Env> {
 				env: this.env,
 				defaultUrl: previewUrl,
 			}),
-		} as unknown as ToolSet;
+		};
+
+		// Resource provisioning needs to know who owns the app (`config.userId`)
+		// and which app (`this.name`, the ThinkAgent/SpaceDO's shared name, is
+		// the app's D1 id). Both are only set once the host has configured this
+		// instance, so skip registering these tools until then.
+		if (config?.userId) {
+			const provisioningOpts = {
+				env: this.env,
+				userId: config.userId,
+				appId: this.name,
+			};
+			tools.provision_resource =
+				createProvisionResourceTool(provisioningOpts);
+			tools.list_provisioned_resources =
+				createListProvisionedResourcesTool(provisioningOpts);
+			tools.run_d1_migration = createRunD1MigrationTool(provisioningOpts);
+		}
+
+		return tools as unknown as ToolSet;
 	}
 
 	/**
