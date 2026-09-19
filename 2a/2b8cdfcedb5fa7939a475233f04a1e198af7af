@@ -1,0 +1,19 @@
+src/routes/chat/chat.tsx
+  s_0ab1261da85652::t_e80d2b7653ed7f 42,414-429
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2a2b8cdfcedb5fa7939a475233f04a1e198af7af",
+  "prompts": {},
+  "sessions": {
+    "s_0ab1261da85652": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "b5712f4e-c5be-4068-b07d-e5f640b7c89e",
+        "model": "Claude Sonnet 5 Medium"
+      },
+      "human_author": "Nikhil <vnikhilbuddhavarapu@outlook.com>"
+    }
+  }
+}
