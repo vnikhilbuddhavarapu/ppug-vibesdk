@@ -10,7 +10,15 @@ import {
 	AI_MODEL_CONFIG,
 	AIModels,
 } from 'worker/agents/inferutils/config.types';
+import { WORKERS_AI_MODELS_MASTER } from 'worker/agents/inferutils/workersAiModels';
 import { buildAigMetadataHeader } from '../aigateway/metadata';
+
+// The only models a deployed attendee app may call through the proxy at
+// runtime — the same 7 event workers-ai models used for the Think builder
+// itself, so runtime spend stays bounded to the intended catalog.
+const RUNTIME_APP_MODELS = new Set<string>(
+	Object.values(WORKERS_AI_MODELS_MASTER).map((model) => model.id),
+);
 
 // Resource caps to protect the shared platform gateway from abuse (CWE-770).
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB total request body
@@ -361,6 +369,15 @@ export async function proxyToAiGateway(
 		}
 
 		const modelName = requestBody.model;
+
+		if (!RUNTIME_APP_MODELS.has(modelName)) {
+			return jsonError(
+				400,
+				`Model "${modelName}" is not available to deployed apps`,
+				'invalid_request_error',
+				{ param: 'model' },
+			);
+		}
 
 		// Enforce rate limit
 		const userConfig = await getUserConfigurableSettings(env, app.userId);
