@@ -134,6 +134,27 @@ describe('deployThinkBundleToPlatform', () => {
 		}
 	});
 
+	it('passes vars (CF_AI_BASE_URL/CF_AI_API_KEY) through to deployWithAssets', async () => {
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+			vars: {
+				CF_AI_BASE_URL: 'https://gateway.example.com/api/proxy/openai',
+				CF_AI_API_KEY: 'token',
+			},
+		});
+
+		// vars is the 7th positional arg of deployWithAssets
+		expect(deployWithAssets.mock.calls[0][6]).toEqual({
+			CF_AI_BASE_URL: 'https://gateway.example.com/api/proxy/openai',
+			CF_AI_API_KEY: 'token',
+		});
+	});
+
 	it('falls back to a simple deploy when the bundle has no assets', async () => {
 		await deployThinkBundleToPlatform({
 			accountId: 'platform-account',

@@ -40,6 +40,10 @@ import { AI_MODEL_CONFIG, AIModels } from '../../inferutils/config.types';
 import { ModelConfigService } from '../../../database/services/ModelConfigService';
 import { UserService } from '../../../database/services/UserService';
 import { buildAigMetadataHeader } from '../../../services/aigateway/metadata';
+import {
+	generateAppProxyToken,
+	generateAppProxyUrl,
+} from '../../../services/aigateway-proxy/controller';
 import type { BranchDeploymentBundle } from '@space-do/space';
 import { CloudflareAccountService } from '../../../services/cloudflare/CloudflareAccountService';
 import {
@@ -1240,6 +1244,10 @@ export class ThinkCodingBehavior
 			);
 			const extraBindings =
 				await this.getProvisionedDeployBindings(instanceId);
+			const vars = await this.getAiProxyDeployVars(
+				instanceId,
+				this.state.metadata.userId,
+			);
 			const result = await deployThinkBundleToUserAccount({
 				accountId: account.accountId,
 				accessToken: token.accessToken,
@@ -1249,6 +1257,7 @@ export class ThinkCodingBehavior
 					`vibe-${instanceId}`,
 				bundle,
 				extraBindings,
+				vars,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,
@@ -1286,6 +1295,27 @@ export class ThinkCodingBehavior
 			);
 			return null;
 		}
+	}
+
+	/**
+	 * `CF_AI_BASE_URL`/`CF_AI_API_KEY` env vars so a deployed Think app can call
+	 * models at runtime through the platform's AI Gateway proxy — the same
+	 * pattern already wired for the legacy `DeploymentManager` sandbox path.
+	 * `undefined` (no vars injected) when the proxy isn't configured for this
+	 * environment (`AI_PROXY_JWT_SECRET` unset).
+	 */
+	private async getAiProxyDeployVars(
+		appId: string,
+		userId: string,
+	): Promise<Record<string, string> | undefined> {
+		const secret = this.env.AI_PROXY_JWT_SECRET;
+		if (typeof secret !== 'string' || secret.trim().length === 0) {
+			return undefined;
+		}
+		return {
+			CF_AI_BASE_URL: generateAppProxyUrl(this.env),
+			CF_AI_API_KEY: await generateAppProxyToken(appId, userId, this.env),
+		};
 	}
 
 	/**
@@ -1360,6 +1390,10 @@ export class ThinkCodingBehavior
 			);
 			const extraBindings =
 				await this.getProvisionedDeployBindings(instanceId);
+			const vars = await this.getAiProxyDeployVars(
+				instanceId,
+				this.state.metadata.userId,
+			);
 			const result = await deployThinkBundleToPlatform({
 				accountId,
 				apiToken,
@@ -1371,6 +1405,7 @@ export class ThinkCodingBehavior
 					`vibe-${instanceId}`,
 				bundle,
 				extraBindings,
+				vars,
 			});
 			await new AppService(this.env).updateDeploymentId(
 				instanceId,

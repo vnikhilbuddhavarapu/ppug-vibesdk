@@ -83,6 +83,7 @@ interface ThinkBundleArtifacts {
 	assets: Record<string, { hash: string; size: number }> | undefined;
 	assetContents: Map<string, Buffer>;
 	bindings: WorkerBinding[];
+	vars: Record<string, string> | undefined;
 	assetsConfig: AssetConfig | undefined;
 	migration: { tag: string; new_sqlite_classes: string[] }[] | undefined;
 }
@@ -91,6 +92,7 @@ async function buildThinkBundleArtifacts(
 	bundle: BranchDeploymentBundle,
 	appName: string,
 	extraBindings: WorkerBinding[] = [],
+	vars?: Record<string, string>,
 ): Promise<ThinkBundleArtifacts> {
 	const scriptName = sanitizeWorkerName(appName);
 	const modules = new Map<string, string>();
@@ -159,6 +161,7 @@ async function buildThinkBundleArtifacts(
 		assets,
 		assetContents,
 		bindings,
+		vars,
 		assetsConfig,
 		migration,
 	};
@@ -177,7 +180,7 @@ async function deployArtifacts(
 			artifacts.assets,
 			artifacts.assetContents,
 			artifacts.bindings,
-			undefined,
+			artifacts.vars,
 			dispatchNamespace,
 			artifacts.assetsConfig,
 			artifacts.modules,
@@ -191,7 +194,7 @@ async function deployArtifacts(
 			artifacts.entry,
 			artifacts.compatibilityDate,
 			artifacts.bindings,
-			undefined,
+			artifacts.vars,
 			dispatchNamespace,
 			artifacts.modules,
 			undefined,
@@ -207,11 +210,13 @@ export async function deployThinkBundleToUserAccount(input: {
 	appName: string;
 	bundle: BranchDeploymentBundle;
 	extraBindings?: WorkerBinding[];
+	vars?: Record<string, string>;
 }): Promise<ThinkUserDeploymentResult> {
 	const artifacts = await buildThinkBundleArtifacts(
 		input.bundle,
 		input.appName,
 		input.extraBindings,
+		input.vars,
 	);
 	const deployer = new WorkerDeployer(input.accountId, input.accessToken);
 	await deployArtifacts(deployer, artifacts, undefined);
@@ -238,11 +243,13 @@ export async function deployThinkBundleToPlatform(input: {
 	appName: string;
 	bundle: BranchDeploymentBundle;
 	extraBindings?: WorkerBinding[];
+	vars?: Record<string, string>;
 }): Promise<ThinkUserDeploymentResult> {
 	const artifacts = await buildThinkBundleArtifacts(
 		input.bundle,
 		input.appName,
 		input.extraBindings,
+		input.vars,
 	);
 	const deployer = new WorkerDeployer(input.accountId, input.apiToken);
 	await deployArtifacts(deployer, artifacts, input.dispatchNamespace);
