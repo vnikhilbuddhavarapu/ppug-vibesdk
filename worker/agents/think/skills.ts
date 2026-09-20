@@ -9,9 +9,14 @@
  * automatically.
  */
 import { fromManifest, parseSkillMarkdown } from 'agents/skills';
-import type { SkillManifest, SkillManifestEntry, SkillSource } from 'agents/skills';
+import type {
+	SkillManifest,
+	SkillManifestEntry,
+	SkillSource,
+} from 'agents/skills';
 
 import APP_FILE_STRUCTURE from './skills/app-file-structure/SKILL.md?raw';
+import BACKEND_AI_AND_DATA from './skills/backend-ai-and-data/SKILL.md?raw';
 import FRONTEND_DESIGN from './skills/frontend-design/SKILL.md?raw';
 import FRONTEND_DESIGN_LANDING_PAGE from './skills/frontend-design-landing-page/SKILL.md?raw';
 import FRONTEND_DESIGN_SAAS from './skills/frontend-design-saas/SKILL.md?raw';
@@ -19,6 +24,7 @@ import FRONTEND_DESIGN_SAAS from './skills/frontend-design-saas/SKILL.md?raw';
 /** Raw `SKILL.md` contents keyed by their source directory name. */
 const RAW_SKILLS: Record<string, string> = {
 	'app-file-structure': APP_FILE_STRUCTURE,
+	'backend-ai-and-data': BACKEND_AI_AND_DATA,
 	'frontend-design': FRONTEND_DESIGN,
 	'frontend-design-landing-page': FRONTEND_DESIGN_LANDING_PAGE,
 	'frontend-design-saas': FRONTEND_DESIGN_SAAS,
@@ -34,9 +40,13 @@ function buildEntries(): SkillManifestEntry[] {
 			description: parsed.description || dir,
 			body: parsed.body,
 			rawContent: raw,
-			...(parsed.compatibility ? { compatibility: parsed.compatibility } : {}),
+			...(parsed.compatibility
+				? { compatibility: parsed.compatibility }
+				: {}),
 			...(parsed.license ? { license: parsed.license } : {}),
-			...(parsed.allowedTools ? { allowedTools: parsed.allowedTools } : {}),
+			...(parsed.allowedTools
+				? { allowedTools: parsed.allowedTools }
+				: {}),
 			...(parsed.metadata ? { metadata: parsed.metadata } : {}),
 		});
 	}
@@ -46,7 +56,9 @@ function buildEntries(): SkillManifestEntry[] {
 const entries = buildEntries();
 
 /** Content-derived fingerprint so Think re-reads the catalog if a skill changes. */
-const fingerprint = entries.map((e) => `${e.name}:${e.rawContent?.length ?? 0}`).join('|');
+const fingerprint = entries
+	.map((e) => `${e.name}:${e.rawContent?.length ?? 0}`)
+	.join('|');
 
 const manifest: SkillManifest = {
 	id: 'vibesdk-think-skills',
