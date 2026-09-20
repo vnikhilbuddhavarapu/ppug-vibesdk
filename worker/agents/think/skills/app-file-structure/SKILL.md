@@ -46,7 +46,7 @@ Minimum viable `wrangler.json`:
 ```json
 {
 	"main": "src/index.ts",
-	"compatibility_date": "2025-04-01",
+	"compatibility_date": "<today's date, YYYY-MM-DD>",
 	"assets": {
 		"directory": "./public",
 		"html_handling": "auto-trailing-slash",
@@ -58,7 +58,7 @@ Minimum viable `wrangler.json`:
 Notes:
 
 - `main` is required when there's any server code. The bundler also auto-detects `src/index.ts`, `src/index.js`, `index.ts`, `index.js` if missing.
-- `compatibility_date` defaults to `2025-04-01` if omitted. Set it explicitly for newer features.
+- Set `compatibility_date` to today's actual date, not a fixed value copied from an example — an old date silently opts out of newer Workers runtime behavior. If omitted, the bundler falls back to an old default, so always set it explicitly.
 - Add `"compatibility_flags": ["nodejs_compat"]` only if you actually need Node built-ins.
 - `assets.directory` is the **only** way to ship static files. Files outside this directory are bundled into the Worker or ignored — they will **not** be reachable via URL.
 - `html_handling: "auto-trailing-slash"` is usually what you want for multi-page sites; SPAs should also set `not_found_handling: "single-page-application"` so deep links return `index.html`.
@@ -412,7 +412,7 @@ Run through every item — most "preview is broken" reports trace back to one of
 - SPA routing? Set `not_found_handling: "single-page-application"`.
 - Server entry exports `class App extends DurableObject` from your `main` module (no `export default { fetch }`).
 - No `durable_objects` / `d1_databases` / `kv_namespaces` / `r2_buckets` blocks in `wrangler.json`.
-- `compatibility_date` is set if you use APIs newer than the default.
+- `compatibility_date` is set to today's actual date, not an old copy-pasted value.
 
 If any of these are off, fix them in the working tree, commit, and redeploy. The preview will pick up the new build on the next `deploy_space` call (the dynamic worker is keyed by commit hash, so old builds are not reused).
 
@@ -434,7 +434,7 @@ public/style.css
 ```json
 {
 	"main": "src/index.ts",
-	"compatibility_date": "2025-04-01",
+	"compatibility_date": "<today's date, YYYY-MM-DD>",
 	"assets": {
 		"directory": "./public",
 		"html_handling": "auto-trailing-slash",
