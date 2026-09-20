@@ -155,6 +155,26 @@ describe('deployThinkBundleToPlatform', () => {
 		});
 	});
 
+	it('routes /api/* straight to the App DO before touching ASSETS (SPA fallback would otherwise swallow every GET API route)', async () => {
+		await deployThinkBundleToPlatform({
+			accountId: 'platform-account',
+			apiToken: 'platform-token',
+			dispatchNamespace: 'vibesdk-default-namespace',
+			previewDomain: 'build-preview.cloudflare.dev',
+			appName: 'My App',
+			bundle: makeBundle(),
+		});
+
+		// workerContent (the generated entry module) is the 2nd positional
+		// arg of deployWithAssets.
+		const entry = deployWithAssets.mock.calls[0][1] as string;
+		const apiCheckIndex = entry.indexOf('pathname.startsWith("/api/")');
+		const assetsFetchIndex = entry.indexOf('env.ASSETS.fetch(request)');
+		expect(apiCheckIndex).toBeGreaterThan(-1);
+		expect(assetsFetchIndex).toBeGreaterThan(-1);
+		expect(apiCheckIndex).toBeLessThan(assetsFetchIndex);
+	});
+
 	it('falls back to a simple deploy when the bundle has no assets', async () => {
 		await deployThinkBundleToPlatform({
 			accountId: 'platform-account',

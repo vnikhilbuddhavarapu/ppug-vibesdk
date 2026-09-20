@@ -8,7 +8,7 @@ Read `agent-primitives` and `backend-ai-and-data` first — this skill only adds
 ## Architecture
 
 - **Storage**: R2 for the raw uploaded documents/notes (provision via `provision_resource`, binding e.g. `DOCS_BUCKET`). A DO SQLite table for document metadata (id, filename, r2_key, uploaded_at) is enough — D1 not needed at this scope.
-- **Search**: Vectorize (provision via `provision_resource`, binding e.g. `KB_INDEX`) for semantic retrieval. Generate embeddings through the AI proxy's `/embeddings` path when a document is uploaded (chunk long documents — a few hundred words per chunk — before embedding each chunk separately) and again for each incoming question.
+- **Search**: Vectorize (provision via `provision_resource`, binding e.g. `KB_INDEX`) for semantic retrieval. Generate embeddings with `workers-ai/@cf/baai/bge-base-en-v1.5` through the AI proxy's `/embeddings` path (see `backend-ai-and-data`) when a document is uploaded (chunk long documents — a few hundred words per chunk — before embedding each chunk separately) and again for each incoming question.
 - **Q&A flow**: embed the question, `env.KB_INDEX.query(vector, { topK: 5 })` for the closest chunks, then one `chat/completions` call with the retrieved chunks as context and an instruction to answer only from them.
 - **UI**: upload control, a document list, a chat-style Q&A box.
 
