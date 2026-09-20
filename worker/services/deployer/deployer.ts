@@ -12,6 +12,22 @@ import { mergeMigrations, extractDurableObjectClasses } from './utils/index';
 const logger = createObjectLogger('WorkerDeployer');
 
 /**
+ * The Cloudflare Workers script-upload API has no top-level `vars` field —
+ * plain-text/secret env vars must be declared as `bindings` entries
+ * (`type: "secret_text"`, with the value inline as `text`). Using
+ * `secret_text` for all of them keeps values out of the settings/GET API
+ * response regardless of sensitivity.
+ */
+function varsToBindings(vars?: Record<string, string>): WorkerBinding[] {
+	if (!vars) return [];
+	return Object.entries(vars).map(([name, text]) => ({
+		name,
+		type: 'secret_text',
+		text,
+	}));
+}
+
+/**
  * Main deployment orchestrator for Cloudflare Workers
  * Handles both simple deployments and deployments with static assets
  */
@@ -116,11 +132,11 @@ export class WorkerDeployer {
 						| '404-page'
 						| 'none'
 						| undefined,
-                    run_worker_first: assetsConfig?.run_worker_first,
-                    binding: assetsConfig?.binding,
+					run_worker_first: assetsConfig?.run_worker_first,
+					binding: assetsConfig?.binding,
 				},
 			},
-			bindings: bindings || [],
+			bindings: [...(bindings || []), ...varsToBindings(vars)],
 			observability,
 		};
 
@@ -134,10 +150,6 @@ export class WorkerDeployer {
 			if (doClasses.length > 0) {
 				metadata.exported_handlers = doClasses;
 			}
-		}
-
-		if (vars && Object.keys(vars).length > 0) {
-			metadata.vars = vars;
 		}
 
 		// Extract Durable Object class names from bindings
@@ -183,7 +195,7 @@ export class WorkerDeployer {
 			main_module: 'index.js',
 			compatibility_date: compatibilityDate,
 			compatibility_flags: compatibilityFlags,
-			bindings: bindings || [],
+			bindings: [...(bindings || []), ...varsToBindings(vars)],
 			observability,
 		};
 
@@ -197,10 +209,6 @@ export class WorkerDeployer {
 			if (doClasses.length > 0) {
 				metadata.exported_handlers = doClasses;
 			}
-		}
-
-		if (vars && Object.keys(vars).length > 0) {
-			metadata.vars = vars;
 		}
 
 		// Extract Durable Object class names from bindings

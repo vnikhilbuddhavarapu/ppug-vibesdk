@@ -98,7 +98,6 @@ export interface WorkerMetadata {
 		config?: AssetConfig;
 	};
 	bindings?: WorkerBinding[];
-	vars?: Record<string, string>;
 	migrations?: DurableObjectMigration;
 	exported_handlers?: string[]; // For Durable Object class exports
 	observability?: WorkerObservability;
@@ -130,6 +129,7 @@ export interface WorkerBinding {
 	database_id?: string; // For D1 databases
 	bucket_name?: string; // For R2 buckets
 	index_name?: string; // For Vectorize indexes
+	text?: string; // For plain_text / secret_text bindings
 }
 
 /**
