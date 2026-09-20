@@ -17,6 +17,13 @@ import type {
 
 import APP_FILE_STRUCTURE from './skills/app-file-structure/SKILL.md?raw';
 import BACKEND_AI_AND_DATA from './skills/backend-ai-and-data/SKILL.md?raw';
+import AGENT_PRIMITIVES from './skills/agent-primitives/SKILL.md?raw';
+import AGENT_INTERACTION_PATTERNS from './skills/agent-interaction-patterns/SKILL.md?raw';
+import MEETING_NOTES from './skills/meeting-notes/SKILL.md?raw';
+import KNOWLEDGE_BASE_RAG from './skills/knowledge-base-rag/SKILL.md?raw';
+import SUPPORT_TRIAGE_HITL from './skills/support-triage-hitl/SKILL.md?raw';
+import DOC_RAG_CITATIONS from './skills/doc-rag-citations/SKILL.md?raw';
+import RESEARCH_RELEASE_MONITOR from './skills/research-release-monitor/SKILL.md?raw';
 import FRONTEND_DESIGN from './skills/frontend-design/SKILL.md?raw';
 import FRONTEND_DESIGN_LANDING_PAGE from './skills/frontend-design-landing-page/SKILL.md?raw';
 import FRONTEND_DESIGN_SAAS from './skills/frontend-design-saas/SKILL.md?raw';
@@ -25,6 +32,13 @@ import FRONTEND_DESIGN_SAAS from './skills/frontend-design-saas/SKILL.md?raw';
 const RAW_SKILLS: Record<string, string> = {
 	'app-file-structure': APP_FILE_STRUCTURE,
 	'backend-ai-and-data': BACKEND_AI_AND_DATA,
+	'agent-primitives': AGENT_PRIMITIVES,
+	'agent-interaction-patterns': AGENT_INTERACTION_PATTERNS,
+	'meeting-notes': MEETING_NOTES,
+	'knowledge-base-rag': KNOWLEDGE_BASE_RAG,
+	'support-triage-hitl': SUPPORT_TRIAGE_HITL,
+	'doc-rag-citations': DOC_RAG_CITATIONS,
+	'research-release-monitor': RESEARCH_RELEASE_MONITOR,
 	'frontend-design': FRONTEND_DESIGN,
 	'frontend-design-landing-page': FRONTEND_DESIGN_LANDING_PAGE,
 	'frontend-design-saas': FRONTEND_DESIGN_SAAS,
