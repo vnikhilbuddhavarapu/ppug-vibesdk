@@ -237,6 +237,35 @@ describe('proxyToAiGateway', () => {
 		expect(res.status).toBe(400);
 	});
 
+	it('allows the runtime embeddings model on /embeddings', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response('{"data":[{"embedding":[0.1]}]}', {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				}),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const token = await generateAppProxyToken('app-1', 'user-1', testEnv);
+		const res = await proxyToAiGateway(
+			makeRequest('/embeddings', {
+				token,
+				body: {
+					model: 'workers-ai/@cf/baai/bge-base-en-v1.5',
+					input: 'some chunk text',
+				},
+			}),
+			testEnv,
+			ctx,
+		);
+
+		expect(res.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		vi.unstubAllGlobals();
+	});
+
 	it('returns 404 when the app is not found', async () => {
 		state.appRow = undefined;
 		const token = await generateAppProxyToken('app-1', 'user-1', testEnv);

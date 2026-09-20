@@ -85,3 +85,28 @@ export const WORKERS_AI_MODELS_MASTER = {
 		},
 	},
 } as const satisfies Record<string, { id: string; config: AIModelConfig }>;
+
+/**
+ * Embeddings model(s) available to *deployed apps* through the runtime AI
+ * proxy's `/embeddings` path (RAG chunk/query embedding — see the
+ * `agent-primitives`/`knowledge-base-rag`/`doc-rag-citations` skills).
+ * Deliberately kept out of `WORKERS_AI_MODELS_MASTER`/`MODELS_MASTER`: an
+ * embeddings-only model can't do chat/reasoning, so it must never appear in
+ * Think's own selectable-model catalog (Configure modal, model-selector).
+ * Only `worker/services/aigateway-proxy/controller.ts` consumes this.
+ *
+ * `bge-base-en-v1.5` outputs 768-dim vectors, matching
+ * `ProvisioningService`'s default Vectorize index dimension.
+ */
+export const WORKERS_AI_EMBEDDING_MODELS = {
+	BGE_BASE_EN_V1_5: {
+		id: 'workers-ai/@cf/baai/bge-base-en-v1.5',
+		config: {
+			name: 'BGE Base EN v1.5 (embeddings)',
+			size: ModelSize.LITE,
+			provider: 'workers-ai',
+			creditCost: 0.05, // $0.013/1M input tokens
+			contextSize: 512,
+		},
+	},
+} as const satisfies Record<string, { id: string; config: AIModelConfig }>;

@@ -10,10 +10,10 @@ Read `agent-primitives`, `backend-ai-and-data`, and `knowledge-base-rag` first �
 - **Storage**: R2 for raw documents (`provision_resource`, e.g. `DOCS_BUCKET`). D1 (not DO SQLite — provision it explicitly) for document + chunk metadata: a `documents` table (id, filename, r2_key) and a `chunks` table (id, document_id, chunk_index, text, char_start, char_end) so a citation can point to an exact chunk and its position within the source document. D1 earns its keep here specifically because chunk metadata benefits from real foreign-key joins across documents.
 - **Search**: Vectorize (`provision_resource`, e.g. `DOCS_INDEX`), one vector per chunk, metadata payload includes `documentId` + `chunkId` so a query result maps straight back to the D1 row.
 - **Multi-step pipeline** (this is the "multi-step pipeline" flag — implement as distinct, sequential steps, not one monolithic call):
-  1. Ingest: chunk the uploaded document, embed each chunk, insert into D1 + Vectorize.
-  2. Retrieve: embed the question, query Vectorize for top chunks.
-  3. Generate: call `chat/completions` with retrieved chunks as context, instructing the model to cite which chunk(s) it used (e.g. by index) in a structured field of its response.
-  4. Resolve citations: map the model's cited chunk indices back to the D1 rows (filename, char range) and render them alongside the answer.
+    1. Ingest: chunk the uploaded document, embed each chunk with `workers-ai/@cf/baai/bge-base-en-v1.5` (see `backend-ai-and-data`), insert into D1 + Vectorize.
+    2. Retrieve: embed the question with the same model, query Vectorize for top chunks.
+    3. Generate: call `chat/completions` with retrieved chunks as context, instructing the model to cite which chunk(s) it used (e.g. by index) in a structured field of its response.
+    4. Resolve citations: map the model's cited chunk indices back to the D1 rows (filename, char range) and render them alongside the answer.
 - **UI**: upload, document list, Q&A box, answer rendered with clickable citation markers that reveal source filename + excerpt.
 
 ## Scope fence (1.5 hours)

@@ -66,13 +66,26 @@ function buildEntryModule(
 	const appExport = hasApp
 		? `export { App } from ${JSON.stringify(specifier)};\n`
 		: 'import { DurableObject } from "cloudflare:workers";\nexport class App extends DurableObject {}\n';
-	const assetRouting = hasAssets
-		? 'const assetResponse = await env.ASSETS.fetch(request); if (assetResponse.status !== 404) return assetResponse; const accept = request.headers.get("accept") || ""; if (request.method === "GET" && accept.includes("text/html")) { const indexUrl = new URL("/index.html", request.url); const indexResponse = await env.ASSETS.fetch(new Request(indexUrl, request)); if (indexResponse.status !== 404) return indexResponse; } '
-		: '';
 	const appRouting = hasApp
 		? `return env.${APP_BINDING}.get(env.${APP_BINDING}.idFromName("main")).fetch(request);`
 		: 'return new Response("Not Found", { status: 404 });';
-	return `${appExport}export default { async fetch(request, env) { ${assetRouting}${appRouting} } };`;
+	// `/api/*` (the App DO's own backend convention, see the
+	// `app-file-structure` skill) always goes straight to the DO, before
+	// touching ASSETS. With `not_found_handling: "single-page-application"`
+	// (the platform's default template), `env.ASSETS.fetch()` serves
+	// `index.html` with 200 for *any* unmatched path regardless of Accept
+	// headers when called programmatically — so without this, every GET
+	// `/api/*` route would be silently swallowed and never reach the App
+	// DO (POST/DELETE routes were unaffected, since SPA fallback only
+	// applies to the assets binding's own GET routing).
+	const apiRouting =
+		hasApp && hasAssets
+			? `if (new URL(request.url).pathname.startsWith("/api/")) { ${appRouting} } `
+			: '';
+	const assetRouting = hasAssets
+		? 'const assetResponse = await env.ASSETS.fetch(request); if (assetResponse.status !== 404) return assetResponse; const accept = request.headers.get("accept") || ""; if (request.method === "GET" && accept.includes("text/html")) { const indexUrl = new URL("/index.html", request.url); const indexResponse = await env.ASSETS.fetch(new Request(indexUrl, request)); if (indexResponse.status !== 404) return indexResponse; } '
+		: '';
+	return `${appExport}export default { async fetch(request, env) { ${apiRouting}${assetRouting}${appRouting} } };`;
 }
 
 interface ThinkBundleArtifacts {

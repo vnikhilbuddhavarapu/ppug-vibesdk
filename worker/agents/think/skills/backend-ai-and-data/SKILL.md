@@ -16,38 +16,46 @@ Supported paths (append to the base URL): `/chat/completions`, `/completions`, `
 
 ```ts
 export class App extends DurableObject {
-  async fetch(request: Request): Promise<Response> {
-    // ...
-    if (url.pathname === "/api/draft-reply" && request.method === "POST") {
-      if (!this.env.CF_AI_BASE_URL) {
-        return Response.json(
-          { error: "AI is only available once this app is deployed, not in preview." },
-          { status: 503 },
-        );
-      }
-      const { ticketBody } = await request.json<{ ticketBody: string }>();
-      const aiRes = await fetch(`${this.env.CF_AI_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.env.CF_AI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "workers-ai/@cf/zai-org/glm-5.3-flash",
-          messages: [
-            { role: "system", content: "Draft a short, polite support reply." },
-            { role: "user", content: ticketBody },
-          ],
-        }),
-      });
-      const data = await aiRes.json();
-      return Response.json({ draft: data.choices[0].message.content });
-    }
-  }
+	async fetch(request: Request): Promise<Response> {
+		// ...
+		if (url.pathname === '/api/draft-reply' && request.method === 'POST') {
+			if (!this.env.CF_AI_BASE_URL) {
+				return Response.json(
+					{
+						error: 'AI is only available once this app is deployed, not in preview.',
+					},
+					{ status: 503 },
+				);
+			}
+			const { ticketBody } = await request.json<{ ticketBody: string }>();
+			const aiRes = await fetch(
+				`${this.env.CF_AI_BASE_URL}/chat/completions`,
+				{
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${this.env.CF_AI_API_KEY}`,
+					},
+					body: JSON.stringify({
+						model: 'workers-ai/@cf/zai-org/glm-5.3-flash',
+						messages: [
+							{
+								role: 'system',
+								content: 'Draft a short, polite support reply.',
+							},
+							{ role: 'user', content: ticketBody },
+						],
+					}),
+				},
+			);
+			const data = await aiRes.json();
+			return Response.json({ draft: data.choices[0].message.content });
+		}
+	}
 }
 ```
 
-**Model IDs you may call** (any other `model` value is rejected with a 400):
+**Chat/completion model IDs you may call** (any other `model` value is rejected with a 400):
 
 ```
 workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813
@@ -60,6 +68,27 @@ workers-ai/@cf/zai-org/glm-5.3-flash
 ```
 
 Prefer a `-flash`/smaller model for latency-sensitive UI-triggered calls (drafting, classification) and a larger model only for tasks that need it (long-context summarization, complex reasoning). Requests are rate-limited per user and capped at 16384 output tokens — don't request more.
+
+**Embeddings model** (for RAG chunk/query embedding, call `/embeddings` on the same base URL): `workers-ai/@cf/baai/bge-base-en-v1.5`, outputs 768-dimension vectors — matches the default dimension `provision_resource` uses when creating a Vectorize index, so you don't need to pass a custom `dimensions` value.
+
+```ts
+const embedRes = await fetch(`${this.env.CF_AI_BASE_URL}/embeddings`, {
+	method: 'POST',
+	headers: {
+		'Content-Type': 'application/json',
+		Authorization: `Bearer ${this.env.CF_AI_API_KEY}`,
+	},
+	body: JSON.stringify({
+		model: 'workers-ai/@cf/baai/bge-base-en-v1.5',
+		input: chunkText,
+	}),
+});
+const { data } = await embedRes.json();
+const vector = data[0].embedding; // number[768]
+await this.env.MY_INDEX.upsert([
+	{ id: chunkId, values: vector, metadata: { documentId } },
+]);
+```
 
 Do not add `d1_databases`/`kv_namespaces` bindings, an `AI` binding, or any provider SDK/API key to call this — there is nothing to configure. `env.CF_AI_BASE_URL`/`env.CF_AI_API_KEY` simply won't exist until the app is deployed.
 

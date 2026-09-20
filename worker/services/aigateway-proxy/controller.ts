@@ -8,17 +8,37 @@ import { RateLimitService } from '../rate-limit/rateLimits';
 import { getUserConfigurableSettings } from 'worker/config';
 import {
 	AI_MODEL_CONFIG,
-	AIModels,
+	AIModelConfig,
 } from 'worker/agents/inferutils/config.types';
-import { WORKERS_AI_MODELS_MASTER } from 'worker/agents/inferutils/workersAiModels';
+import {
+	WORKERS_AI_EMBEDDING_MODELS,
+	WORKERS_AI_MODELS_MASTER,
+} from 'worker/agents/inferutils/workersAiModels';
 import { buildAigMetadataHeader } from '../aigateway/metadata';
 
 // The only models a deployed attendee app may call through the proxy at
-// runtime — the same 7 event workers-ai models used for the Think builder
-// itself, so runtime spend stays bounded to the intended catalog.
-const RUNTIME_APP_MODELS = new Set<string>(
-	Object.values(WORKERS_AI_MODELS_MASTER).map((model) => model.id),
-);
+// runtime: the 7 event workers-ai chat models used for the Think builder
+// itself, plus the embeddings model for RAG (chunk/query embedding — see
+// `WORKERS_AI_EMBEDDING_MODELS`), so runtime spend stays bounded to the
+// intended catalog.
+const RUNTIME_APP_MODELS = new Set<string>([
+	...Object.values(WORKERS_AI_MODELS_MASTER).map((model) => model.id),
+	...Object.values(WORKERS_AI_EMBEDDING_MODELS).map((model) => model.id),
+]);
+
+// `AI_MODEL_CONFIG` only covers Think's own selectable-model catalog, which
+// deliberately excludes the embeddings-only model (see
+// `WORKERS_AI_EMBEDDING_MODELS`). Runtime app calls need a config for both,
+// so resolve against this superset instead of `AI_MODEL_CONFIG` directly.
+const RUNTIME_MODEL_CONFIG: Record<string, AIModelConfig> = {
+	...AI_MODEL_CONFIG,
+	...Object.fromEntries(
+		Object.values(WORKERS_AI_EMBEDDING_MODELS).map((model) => [
+			model.id,
+			model.config,
+		]),
+	),
+};
 
 // Resource caps to protect the shared platform gateway from abuse (CWE-770).
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB total request body
@@ -391,7 +411,7 @@ export async function proxyToAiGateway(
 
 		const { baseURL, apiKey, defaultHeaders } =
 			await getConfigurationForModel(
-				AI_MODEL_CONFIG[modelName as AIModels],
+				RUNTIME_MODEL_CONFIG[modelName],
 				env,
 				app.userId,
 				undefined, // User app proxy doesn't use BYOK
