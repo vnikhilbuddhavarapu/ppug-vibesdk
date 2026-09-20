@@ -45,13 +45,13 @@ Minimum viable `wrangler.json`:
 
 ```json
 {
-  "main": "src/index.ts",
-  "compatibility_date": "2025-04-01",
-  "assets": {
-    "directory": "./public",
-    "html_handling": "auto-trailing-slash",
-    "not_found_handling": "single-page-application"
-  }
+	"main": "src/index.ts",
+	"compatibility_date": "2025-04-01",
+	"assets": {
+		"directory": "./public",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "single-page-application"
+	}
 }
 ```
 
@@ -79,54 +79,60 @@ ignored. There is no separate worker; the DO is the worker.
 
 ```ts
 // src/index.ts
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject } from 'cloudflare:workers';
 
 export class App extends DurableObject {
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+	async fetch(request: Request): Promise<Response> {
+		const url = new URL(request.url);
 
-    // Lazy schema init on the first request. Idempotent.
-    this.ctx.storage.sql.exec(`
+		// Lazy schema init on the first request. Idempotent.
+		this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         body TEXT NOT NULL
       )
     `);
 
-    if (url.pathname === "/api/notes" && request.method === "POST") {
-      const { body } = await request.json<{ body: string }>();
-      this.ctx.storage.sql.exec(`INSERT INTO notes (body) VALUES (?)`, body);
-      return new Response(null, { status: 201 });
-    }
-    if (url.pathname === "/api/notes") {
-      const rows = this.ctx.storage.sql
-        .exec(`SELECT id, body FROM notes ORDER BY id DESC`)
-        .toArray();
-      return Response.json(rows);
-    }
-    return new Response("Not found", { status: 404 });
-  }
+		if (url.pathname === '/api/notes' && request.method === 'POST') {
+			const { body } = await request.json<{ body: string }>();
+			this.ctx.storage.sql.exec(
+				`INSERT INTO notes (body) VALUES (?)`,
+				body,
+			);
+			return new Response(null, { status: 201 });
+		}
+		if (url.pathname === '/api/notes') {
+			const rows = this.ctx.storage.sql
+				.exec(`SELECT id, body FROM notes ORDER BY id DESC`)
+				.toArray();
+			return Response.json(rows);
+		}
+		return new Response('Not found', { status: 404 });
+	}
 }
 ```
 
 Or with Hono inside the DO:
 
 ```ts
-import { DurableObject } from "cloudflare:workers";
-import { Hono } from "hono";
+import { DurableObject } from 'cloudflare:workers';
+import { Hono } from 'hono';
 
 export class App extends DurableObject {
-  private app = new Hono()
-    .get("/api/hello", (c) => c.json({ msg: "hi" }))
-    .post("/api/notes", async (c) => {
-      const { body } = await c.req.json<{ body: string }>();
-      this.ctx.storage.sql.exec(`INSERT INTO notes (body) VALUES (?)`, body);
-      return c.json({ ok: true });
-    });
+	private app = new Hono()
+		.get('/api/hello', (c) => c.json({ msg: 'hi' }))
+		.post('/api/notes', async (c) => {
+			const { body } = await c.req.json<{ body: string }>();
+			this.ctx.storage.sql.exec(
+				`INSERT INTO notes (body) VALUES (?)`,
+				body,
+			);
+			return c.json({ ok: true });
+		});
 
-  async fetch(request: Request) {
-    return this.app.fetch(request);
-  }
+	async fetch(request: Request) {
+		return this.app.fetch(request);
+	}
 }
 ```
 
@@ -150,12 +156,14 @@ SQLite database that survives redeploys.
 ```ts
 // SQL
 this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS counter (n INTEGER)`);
-const cur = this.ctx.storage.sql.exec(`SELECT n FROM counter LIMIT 1`).toArray();
+const cur = this.ctx.storage.sql
+	.exec(`SELECT n FROM counter LIMIT 1`)
+	.toArray();
 const n = (cur[0]?.n as number) ?? 0;
 
 // KV
-const last = this.ctx.storage.kv.get<number>("last_seen") ?? 0;
-this.ctx.storage.kv.put("last_seen", Date.now());
+const last = this.ctx.storage.kv.get<number>('last_seen') ?? 0;
+this.ctx.storage.kv.put('last_seen', Date.now());
 ```
 
 **Use the DO's storage for all persistent state** — users, sessions,
@@ -170,26 +178,33 @@ The platform forwards `Upgrade: websocket` requests transparently into
 
 ```ts
 export class App extends DurableObject {
-  async fetch(request: Request) {
-    const upgrade = request.headers.get("Upgrade");
-    if (upgrade === "websocket") {
-      const { 0: client, 1: server } = new WebSocketPair();
-      this.ctx.acceptWebSocket(server);
-      return new Response(null, { status: 101, webSocket: client });
-    }
-    return new Response("not found", { status: 404 });
-  }
+	async fetch(request: Request) {
+		const upgrade = request.headers.get('Upgrade');
+		if (upgrade === 'websocket') {
+			const { 0: client, 1: server } = new WebSocketPair();
+			this.ctx.acceptWebSocket(server);
+			return new Response(null, { status: 101, webSocket: client });
+		}
+		return new Response('not found', { status: 404 });
+	}
 
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    // Broadcast to every connected client (chat-style fan-out).
-    for (const peer of this.ctx.getWebSockets()) {
-      peer.send(typeof message === "string" ? message : new Uint8Array(message));
-    }
-  }
+	webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+		// Broadcast to every connected client (chat-style fan-out).
+		for (const peer of this.ctx.getWebSockets()) {
+			peer.send(
+				typeof message === 'string' ? message : new Uint8Array(message),
+			);
+		}
+	}
 
-  webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
-    // Cleanup if needed.
-  }
+	webSocketClose(
+		_ws: WebSocket,
+		_code: number,
+		_reason: string,
+		_wasClean: boolean,
+	) {
+		// Cleanup if needed.
+	}
 }
 ```
 
@@ -227,8 +242,15 @@ only that room's sockets.
   deploy with a clear error.
 - **`new_sqlite_classes` / migrations.** Same reason. Your App's
   storage is set up by the platform.
-- **`d1_databases`, `r2_buckets`, `kv_namespaces`.** Not available.
-  Everything goes in `this.ctx.storage`.
+- **`d1_databases`, `r2_buckets`, `kv_namespaces`, `vectorize`
+  blocks in `wrangler.json`.** These are never read from the config
+  file — the deployer ignores them. If `this.ctx.storage` isn't
+  enough (you need a separate relational database, object storage,
+  a KV cache, or vector search), call the `provision_resource` tool
+  instead; it creates the resource and binds it into your deployed
+  worker automatically. See the `backend-ai-and-data` skill for when
+  to reach for it and how to call it, and for how to call AI models
+  at runtime from your `App` class.
 
 ## Static asset rules (read this twice)
 
@@ -240,8 +262,8 @@ This page **will be blank** with a `SyntaxError: Unexpected token '<'`:
 
 ```html
 <script type="module">
-  import React from "https://esm.sh/react@18";
-  const App = () => <div>hi</div>;   // ← browser dies here
+	import React from 'https://esm.sh/react@18';
+	const App = () => <div>hi</div>; // ← browser dies here
 </script>
 ```
 
@@ -251,52 +273,52 @@ Fix one of these three ways:
 2. **`React.createElement` by hand** — works without a build step but is verbose.
 3. **`@babel/standalone`** — only for prototypes. Load Babel **before** the script and use `type="text/babel"`. The modern `@babel/preset-react` defaults to the **automatic JSX runtime**, which emits `import { jsx } from "react/jsx-runtime"`. Browsers will reject that bare specifier unless your importmap maps it. **Always ship a complete importmap alongside the Babel script:**
 
-   ```html
-   <script type="importmap">
-   {
-     "imports": {
-       "react": "https://esm.sh/react@18.3.1",
-       "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-       "react-dom": "https://esm.sh/react-dom@18.3.1",
-       "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
-     }
-   }
-   </script>
-   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-   <script type="text/babel" data-type="module" data-presets="react">
-     import React from "react";
-     import { createRoot } from "react-dom/client";
-     const App = () => <div>hi</div>;
-     createRoot(document.getElementById("root")).render(<App />);
-   </script>
-   ```
+    ```html
+    <script type="importmap">
+    	{
+    		"imports": {
+    			"react": "https://esm.sh/react@18.3.1",
+    			"react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    			"react-dom": "https://esm.sh/react-dom@18.3.1",
+    			"react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+    		}
+    	}
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel" data-type="module" data-presets="react">
+    	import React from 'react';
+    	import { createRoot } from 'react-dom/client';
+    	const App = () => <div>hi</div>;
+    	createRoot(document.getElementById('root')).render(<App />);
+    </script>
+    ```
 
-   `data-type="module"` is required for `import` to work inside the Babel script. Import React from the importmap key (`"react"`) — not from a hard-coded `esm.sh` URL — so your code and Babel's emitted `react/jsx-runtime` import resolve to the **same** React instance.
+    `data-type="module"` is required for `import` to work inside the Babel script. Import React from the importmap key (`"react"`) — not from a hard-coded `esm.sh` URL — so your code and Babel's emitted `react/jsx-runtime` import resolve to the **same** React instance.
 
-   If you really cannot ship `react/jsx-runtime` in the importmap, force Babel to the legacy classic runtime instead so it emits `React.createElement` calls and never touches `react/jsx-runtime`:
+    If you really cannot ship `react/jsx-runtime` in the importmap, force Babel to the legacy classic runtime instead so it emits `React.createElement` calls and never touches `react/jsx-runtime`:
 
-   ```html
-   <script
-     type="text/babel"
-     data-type="module"
-     data-presets="react"
-     data-plugins='[["transform-react-jsx", { "runtime": "classic" }]]'
-   >
-     import React from "https://esm.sh/react@18.3.1";  /* must be in scope */
-     const App = () => <div>hi</div>;
-   </script>
-   ```
+    ```html
+    <script
+    	type="text/babel"
+    	data-type="module"
+    	data-presets="react"
+    	data-plugins='[["transform-react-jsx", { "runtime": "classic" }]]'
+    >
+    	import React from 'https://esm.sh/react@18.3.1'; /* must be in scope */
+    	const App = () => <div>hi</div>;
+    </script>
+    ```
 
-   The classic runtime requires `React` to be in lexical scope (because `<div>` becomes `React.createElement("div")`). The automatic runtime (default) does not, but needs `react/jsx-runtime` resolvable.
+    The classic runtime requires `React` to be in lexical scope (because `<div>` becomes `React.createElement("div")`). The automatic runtime (default) does not, but needs `react/jsx-runtime` resolvable.
 
 ### Symptom-to-fix index
 
-| Console error | Cause | Fix |
-| --- | --- | --- |
-| `Uncaught SyntaxError: Unexpected token '<'` (inside `<script type="module">`) | JSX shipped raw to the browser | Pre-compile, or use `@babel/standalone` with `type="text/babel"` |
+| Console error                                                                                                                                 | Cause                                                                                 | Fix                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Uncaught SyntaxError: Unexpected token '<'` (inside `<script type="module">`)                                                                | JSX shipped raw to the browser                                                        | Pre-compile, or use `@babel/standalone` with `type="text/babel"`                                                                                                         |
 | `Uncaught TypeError: Failed to resolve module specifier "react/jsx-runtime". Relative references must start with either "/", "./", or "../".` | Automatic JSX runtime emits `import "react/jsx-runtime"` but importmap doesn't map it | Add `"react/jsx-runtime": "https://esm.sh/react@<same-version>/jsx-runtime"` to the importmap **before** the Babel/script tag — or force the classic runtime (see above) |
-| `Uncaught TypeError: Failed to resolve module specifier "react"` (or any bare name) | No importmap entry for that package | Add it to the importmap; importmap script tag must appear **before** any module script that uses the specifier |
-| `TypeError: Cannot read properties of null (reading 'useContext')` | Dual-React (two copies loaded) | Append `?external=react,react-dom` to every esm.sh URL with React as a peer dep — see the dual-React trap below |
+| `Uncaught TypeError: Failed to resolve module specifier "react"` (or any bare name)                                                           | No importmap entry for that package                                                   | Add it to the importmap; importmap script tag must appear **before** any module script that uses the specifier                                                           |
+| `TypeError: Cannot read properties of null (reading 'useContext')`                                                                            | Dual-React (two copies loaded)                                                        | Append `?external=react,react-dom` to every esm.sh URL with React as a peer dep — see the dual-React trap below                                                          |
 
 ### Other asset gotchas
 
@@ -308,18 +330,18 @@ Fix one of these three ways:
 
 ### The dual-React trap (the #1 cause of "blank page + `useContext` is null`)
 
-`esm.sh` bundles a package's peer dependencies *into the package itself* unless you tell it otherwise. So this importmap looks correct but ships **two copies of React** — one for your app, another nested inside `framer-motion`:
+`esm.sh` bundles a package's peer dependencies _into the package itself_ unless you tell it otherwise. So this importmap looks correct but ships **two copies of React** — one for your app, another nested inside `framer-motion`:
 
 ```html
 <!-- BROKEN: framer-motion has its own React inside, hooks crash with `Cannot read properties of null (reading 'useContext')` -->
 <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0/client",
-    "framer-motion": "https://esm.sh/framer-motion@11"
-  }
-}
+	{
+		"imports": {
+			"react": "https://esm.sh/react@18.2.0",
+			"react-dom": "https://esm.sh/react-dom@18.2.0/client",
+			"framer-motion": "https://esm.sh/framer-motion@11"
+		}
+	}
 </script>
 ```
 
@@ -337,16 +359,16 @@ because the nested React instance has no provider in the tree.
 ```html
 <!-- CORRECT: one React shared across the whole importmap -->
 <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.3.1",
-    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-    "react-dom": "https://esm.sh/react-dom@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-    "framer-motion": "https://esm.sh/framer-motion@11?external=react,react-dom",
-    "lucide-react": "https://esm.sh/lucide-react@0.400.0?external=react,react-dom"
-  }
-}
+	{
+		"imports": {
+			"react": "https://esm.sh/react@18.3.1",
+			"react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+			"react-dom": "https://esm.sh/react-dom@18.3.1",
+			"react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+			"framer-motion": "https://esm.sh/framer-motion@11?external=react,react-dom",
+			"lucide-react": "https://esm.sh/lucide-react@0.400.0?external=react,react-dom"
+		}
+	}
 </script>
 ```
 
@@ -368,12 +390,12 @@ Safe and well-tested deps: `hono`, `zod`, `itty-router`, `nanoid`, `valibot`, `@
 
 ## Project shapes
 
-| Project shape                       | What you need                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| Pure static site (HTML+JS+CSS only) | `wrangler.json` with `[assets]`, files in `public/`. No `main`. No App class.          |
-| SPA + API                           | `[assets]` for the SPA, `main` exporting `class App extends DurableObject`             |
-| API only (JSON, no frontend)        | `main` exporting `class App extends DurableObject`, no `[assets]`                      |
-| Realtime (WebSocket / multiplayer)  | Same as SPA + API; `App.fetch` upgrades to WebSocket and uses `ctx.acceptWebSocket`    |
+| Project shape                       | What you need                                                                       |
+| ----------------------------------- | ----------------------------------------------------------------------------------- |
+| Pure static site (HTML+JS+CSS only) | `wrangler.json` with `[assets]`, files in `public/`. No `main`. No App class.       |
+| SPA + API                           | `[assets]` for the SPA, `main` exporting `class App extends DurableObject`          |
+| API only (JSON, no frontend)        | `main` exporting `class App extends DurableObject`, no `[assets]`                   |
+| Realtime (WebSocket / multiplayer)  | Same as SPA + API; `App.fetch` upgrades to WebSocket and uses `ctx.acceptWebSocket` |
 
 ## Pre-flight checklist before `deploy_space`
 
@@ -411,13 +433,13 @@ public/style.css
 
 ```json
 {
-  "main": "src/index.ts",
-  "compatibility_date": "2025-04-01",
-  "assets": {
-    "directory": "./public",
-    "html_handling": "auto-trailing-slash",
-    "not_found_handling": "single-page-application"
-  }
+	"main": "src/index.ts",
+	"compatibility_date": "2025-04-01",
+	"assets": {
+		"directory": "./public",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "single-page-application"
+	}
 }
 ```
 
@@ -430,26 +452,29 @@ public/style.css
 `src/index.ts`:
 
 ```ts
-import { DurableObject } from "cloudflare:workers";
-import { Hono } from "hono";
+import { DurableObject } from 'cloudflare:workers';
+import { Hono } from 'hono';
 
 export class App extends DurableObject {
-  private app = new Hono()
-    .get("/api/time", (c) => c.json({ now: new Date().toISOString() }))
-    .post("/api/visit", async (c) => {
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER)`
-      );
-      this.ctx.storage.sql.exec(`INSERT INTO visits (ts) VALUES (?)`, Date.now());
-      const cnt = this.ctx.storage.sql
-        .exec(`SELECT COUNT(*) AS c FROM visits`)
-        .one().c as number;
-      return c.json({ count: cnt });
-    });
+	private app = new Hono()
+		.get('/api/time', (c) => c.json({ now: new Date().toISOString() }))
+		.post('/api/visit', async (c) => {
+			this.ctx.storage.sql.exec(
+				`CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER)`,
+			);
+			this.ctx.storage.sql.exec(
+				`INSERT INTO visits (ts) VALUES (?)`,
+				Date.now(),
+			);
+			const cnt = this.ctx.storage.sql
+				.exec(`SELECT COUNT(*) AS c FROM visits`)
+				.one().c as number;
+			return c.json({ count: cnt });
+		});
 
-  async fetch(request: Request) {
-    return this.app.fetch(request);
-  }
+	async fetch(request: Request) {
+		return this.app.fetch(request);
+	}
 }
 ```
 
@@ -458,26 +483,26 @@ export class App extends DurableObject {
 ```html
 <!doctype html>
 <html>
-<head>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <div id="root">Loading…</div>
-  <script type="module" src="/app.js"></script>
-</body>
+	<head>
+		<link rel="stylesheet" href="/style.css" />
+	</head>
+	<body>
+		<div id="root">Loading…</div>
+		<script type="module" src="/app.js"></script>
+	</body>
 </html>
 ```
 
 `public/app.js`:
 
 ```js
-const res = await fetch("./api/time");
+const res = await fetch('./api/time');
 const data = await res.json();
-document.getElementById("root").textContent = data.now;
+document.getElementById('root').textContent = data.now;
 
 // Increment + display visit counter (server state lives in App.ctx.storage.sql)
-const v = await fetch("./api/visit", { method: "POST" }).then((r) => r.json());
-document.getElementById("root").textContent += `  ·  visits: ${v.count}`;
+const v = await fetch('./api/visit', { method: 'POST' }).then((r) => r.json());
+document.getElementById('root').textContent += `  ·  visits: ${v.count}`;
 ```
 
 Note `./api/time` (relative) in JS, `/style.css` (root-relative) in HTML. The HTML href is rewritten by the preview; the JS fetch resolves against the document's base URL.
